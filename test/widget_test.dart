@@ -7,6 +7,7 @@ import 'package:echowp_mail/models.dart';
 import 'package:echowp_mail/new_mail.dart';
 import 'package:echowp_mail/notifications.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
+import 'package:echowp_mail/theme.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
 import 'package:flutter/gestures.dart';
@@ -472,6 +473,59 @@ void main() {
       final p = File('pubspec.yaml').readAsStringSync();
       expect(p, contains('adaptive_icon_background: "#0A0A0A"'));
       expect(p, contains('adaptive_icon_monochrome: "assets/icon/icon_monochrome.png"'));
+    });
+  });
+
+  group('Farbschema Schwarz-Gelb', () {
+    double contrast(Color a, Color b) {
+      final la = a.computeLuminance(), lb = b.computeLuminance();
+      final hi = la > lb ? la : lb, lo = la > lb ? lb : la;
+      return (hi + 0.05) / (lo + 0.05);
+    }
+
+    test('Dunkel: Gelb auf Schwarz', () {
+      final cs = echoColorScheme(Brightness.dark);
+      expect(cs.primary, echoYellow);
+      expect(cs.onPrimary, echoBlack);
+      expect(contrast(cs.primary, cs.surface), greaterThan(4.5));
+    });
+
+    test('Hell: schwarze Akzente, gelbe Schrift auf Schwarz', () {
+      final cs = echoColorScheme(Brightness.light);
+      expect(cs.primary, echoBlack);
+      expect(cs.onPrimary, echoYellow);
+      expect(contrast(cs.primary, cs.surface), greaterThan(4.5));
+      expect(contrast(cs.onPrimaryContainer, cs.primaryContainer), greaterThan(4.5));
+    });
+
+    test('Kopfleiste in beiden Modi Schwarz mit Gelb', () {
+      for (final b in Brightness.values) {
+        final t = echoTheme(b);
+        expect(t.appBarTheme.backgroundColor, echoBlack);
+        expect(t.appBarTheme.foregroundColor, echoYellow);
+      }
+      expect(NewBadge.color, echoYellow);
+    });
+
+    testWidgets('Ordnerleiste im neuen Schema ohne Überlauf', (tester) async {
+      for (final b in Brightness.values) {
+        final s = AppState()
+          ..accounts = [_acc()]
+          ..folders['a1'] = _folders
+          ..unread['a1'] = {'INBOX': 3};
+        await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+          value: s,
+          child: MaterialApp(
+            scaffoldMessengerKey: s.messengerKey,
+            theme: echoTheme(b),
+            home: const Scaffold(body: SizedBox(width: 300, child: FolderPane())),
+          ),
+        ));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.text('3'), findsWidgets);
+        await _drain(tester);
+      }
     });
   });
 }

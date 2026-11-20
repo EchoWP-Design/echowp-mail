@@ -212,7 +212,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           controller: _searchCtrl,
           autofocus: true,
           style: const TextStyle(color: Colors.white),
-          cursorColor: Colors.white,
+          cursorColor: const Color(0xFFFFD400),
           decoration: const InputDecoration(
             hintText: 'Betreff, Absender, Text …',
             hintStyle: TextStyle(color: Colors.white70),

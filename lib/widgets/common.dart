@@ -66,7 +66,7 @@ class NewBadge extends StatelessWidget {
   final int count;
   const NewBadge({super.key, required this.count});
 
-  static const color = Color(0xFFFFC107);
+  static const color = Color(0xFFFFD400); // EchoWP-Gelb
 
   @override
   Widget build(BuildContext context) {

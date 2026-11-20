@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'app_state.dart';
 import 'notifications.dart';
 import 'screens/home_screen.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,26 +23,8 @@ Future<void> main() async {
   if (launch != null) await state.handleNotification(launch);
 }
 
-const seedColor = Color(0xFF0277BD);
-
 class EchoMailApp extends StatelessWidget {
   const EchoMailApp({super.key});
-
-  ThemeData _theme(Brightness b) {
-    final base = ThemeData(
-      colorSchemeSeed: seedColor,
-      brightness: b,
-      useMaterial3: true,
-      visualDensity: VisualDensity.compact,
-    );
-    return base.copyWith(
-      appBarTheme: AppBarTheme(
-        backgroundColor: b == Brightness.light ? seedColor : null,
-        foregroundColor: b == Brightness.light ? Colors.white : null,
-      ),
-      dividerTheme: const DividerThemeData(space: 1, thickness: 0.5),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,8 +36,8 @@ class EchoMailApp extends StatelessWidget {
       scaffoldMessengerKey: state.messengerKey,
       navigatorKey: state.navigatorKey,
       themeMode: mode,
-      theme: _theme(Brightness.light),
-      darkTheme: _theme(Brightness.dark),
+      theme: echoTheme(Brightness.light),
+      darkTheme: echoTheme(Brightness.dark),
       home: const HomeScreen(),
     );
   }
