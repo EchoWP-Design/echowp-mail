@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:echowp_mail/app_state.dart';
 import 'package:echowp_mail/background.dart';
 import 'package:echowp_mail/mail_service.dart';
@@ -448,6 +450,28 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getDouble('list_width'), 280);
       await _drain(tester);
+    });
+  });
+
+  group('App-Symbol', () {
+    // PNG-Kopf: Breite/Höhe stehen ab Byte 16 (Big Endian).
+    List<int> size(String path) {
+      final b = File(path).readAsBytesSync();
+      expect(b.sublist(1, 4), 'PNG'.codeUnits, reason: '$path ist kein PNG');
+      int be(int o) => (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+      return [be(16), be(20)];
+    }
+
+    test('Symbol-Dateien vorhanden und 1024 px groß', () {
+      for (final f in ['icon.png', 'icon_foreground.png', 'icon_monochrome.png']) {
+        expect(size('assets/icon/$f'), [1024, 1024], reason: f);
+      }
+    });
+
+    test('pubspec: schwarzer Hintergrund und Monochrom-Ebene', () {
+      final p = File('pubspec.yaml').readAsStringSync();
+      expect(p, contains('adaptive_icon_background: "#0A0A0A"'));
+      expect(p, contains('adaptive_icon_monochrome: "assets/icon/icon_monochrome.png"'));
     });
   });
 }
