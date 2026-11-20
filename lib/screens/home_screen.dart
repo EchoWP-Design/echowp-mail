@@ -1,0 +1,354 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+
+import '../app_state.dart';
+import '../models.dart';
+import '../widgets/common.dart';
+import '../widgets/folder_pane.dart';
+import '../widgets/mail_tile.dart';
+import 'account_edit_screen.dart';
+import 'ai_sort_screen.dart';
+import 'compose_screen.dart';
+import 'message_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  final _scroll = ScrollController();
+  final _searchCtrl = TextEditingController();
+  bool _searchOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    HardwareKeyboard.instance.addHandler(_onKey);
+    _scroll.addListener(() {
+      if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 500) {
+        context.read<AppState>().loadMore();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    _scroll.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Entf-Taste (PC): Auswahl bzw. geöffnete Mail löschen – nicht in Textfeldern oder Dialogen.
+  bool _onKey(KeyEvent e) {
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.delete) return false;
+    if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return false;
+    if (textFieldHasFocus()) return false;
+    return context.read<AppState>().deleteFromKeyboard();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) context.read<AppState>().poll();
+  }
+
+  void _open(AppState s, MailItem item, bool wide) {
+    if (wide) {
+      s.setOpen(item);
+    } else {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => MessageScreen(item: item)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final width = MediaQuery.sizeOf(context).width;
+    final twoPane = width >= 800;
+    final threePane = width >= 1250;
+
+    final list = _buildList(s, twoPane);
+    Widget body;
+    if (twoPane) {
+      body = Row(children: [
+        if (threePane) const SizedBox(width: 280, child: FolderPane()),
+        if (threePane) const VerticalDivider(width: 1),
+        SizedBox(width: threePane ? 420 : width * 0.42, child: list),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: s.openItem == null
+              ? Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.mail_outline, size: 64, color: Theme.of(context).colorScheme.outline),
+                    const SizedBox(height: 8),
+                    const Text('Keine Nachricht ausgewählt'),
+                  ]),
+                )
+              : MessageView(key: ValueKey(s.openItem!.key), item: s.openItem!, embedded: true),
+        ),
+      ]);
+    } else {
+      body = list;
+    }
+
+    return Scaffold(
+      appBar: s.selection.isNotEmpty ? _selectionBar(s) : _normalBar(s),
+      drawer: threePane ? null : const Drawer(child: FolderPane(inDrawer: true)),
+      body: body,
+      floatingActionButton: s.accounts.isEmpty || s.selection.isNotEmpty
+          ? null
+          : FloatingActionButton(
+              tooltip: 'Neue E-Mail',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ComposeScreen(accountId: s.viewAccountId)),
+              ),
+              child: const Icon(Icons.edit),
+            ),
+    );
+  }
+
+  PreferredSizeWidget _normalBar(AppState s) {
+    if (_searchOpen) {
+      return AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            setState(() => _searchOpen = false);
+            _searchCtrl.clear();
+            if (s.searchQuery != null) s.clearSearch();
+          },
+        ),
+        title: TextField(
+          controller: _searchCtrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          cursorColor: Colors.white,
+          decoration: const InputDecoration(
+            hintText: 'Betreff, Absender, Text …',
+            hintStyle: TextStyle(color: Colors.white70),
+            border: InputBorder.none,
+          ),
+          textInputAction: TextInputAction.search,
+          onSubmitted: (q) {
+            if (q.trim().isNotEmpty) s.search(q.trim());
+          },
+        ),
+      );
+    }
+    final canAiSort = !s.unified && s.items.isNotEmpty;
+    return AppBar(
+      title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(s.viewTitle, overflow: TextOverflow.ellipsis),
+        if (s.viewSubtitle != null)
+          Text(s.viewSubtitle!, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
+      ]),
+      actions: [
+        if (s.accounts.isNotEmpty)
+          IconButton(
+            tooltip: 'Suchen',
+            icon: const Icon(Icons.search),
+            onPressed: () => setState(() => _searchOpen = true),
+          ),
+        if (canAiSort)
+          IconButton(
+            tooltip: 'KI-Sortierung',
+            icon: const Icon(Icons.auto_awesome),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => AiSortScreen(accountId: s.viewAccountId!, path: s.viewPath)),
+            ),
+          ),
+        IconButton(tooltip: 'Aktualisieren', icon: const Icon(Icons.refresh), onPressed: s.refresh),
+      ],
+    );
+  }
+
+  PreferredSizeWidget _selectionBar(AppState s) {
+    final sel = s.selectedItems;
+    final singleAccount = sel.map((i) => '${i.accountId}|${i.folderPath}').toSet().length == 1;
+    final anyUnread = sel.any((i) => !i.seen);
+    return AppBar(
+      leading: IconButton(icon: const Icon(Icons.close), onPressed: s.clearSelection),
+      title: Text('${sel.length} ausgewählt'),
+      actions: [
+        IconButton(
+          tooltip: anyUnread ? 'Als gelesen markieren' : 'Als ungelesen markieren',
+          icon: Icon(anyUnread ? Icons.mark_email_read : Icons.mark_email_unread),
+          onPressed: () {
+            s.markSeen(sel, anyUnread);
+            s.clearSelection();
+          },
+        ),
+        IconButton(
+          tooltip: 'Archivieren',
+          icon: const Icon(Icons.archive),
+          onPressed: () => s.removeWithUndo(sel, SwipeAction.archive),
+        ),
+        IconButton(
+          tooltip: 'Löschen',
+          icon: const Icon(Icons.delete),
+          onPressed: () => s.removeWithUndo(sel, SwipeAction.delete),
+        ),
+        PopupMenuButton<String>(
+          onSelected: (v) async {
+            switch (v) {
+              case 'move':
+                final t = await pickFolder(context, s, sel.first.accountId, exclude: sel.first.folderPath);
+                if (t != null) s.moveItems(sel, t);
+              case 'flag':
+                s.setFlagged(sel, !sel.every((i) => i.flagged));
+                s.clearSelection();
+              case 'all':
+                s.selectAll();
+            }
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem(
+              value: 'move',
+              enabled: singleAccount,
+              child: const Text('Verschieben …'),
+            ),
+            const PopupMenuItem(value: 'flag', child: Text('Markierung umschalten')),
+            const PopupMenuItem(value: 'all', child: Text('Alle auswählen')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildList(AppState s, bool wide) {
+    if (s.accounts.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.mark_email_unread_outlined, size: 72, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 16),
+            const Text('Willkommen bei EchoWP-Mail', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            const Text('Richte dein erstes E-Mail-Konto ein oder importiere eine Sicherung '
+                '(Einstellungen → Sicherung).', textAlign: TextAlign.center),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              icon: const Icon(Icons.person_add),
+              label: const Text('Konto hinzufügen'),
+              onPressed: () =>
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountEditScreen())),
+            ),
+          ]),
+        ),
+      );
+    }
+
+    final header = <Widget>[
+      if (s.loading) const LinearProgressIndicator(minHeight: 2),
+      if (s.error != null)
+        MaterialBanner(
+          content: Text(s.error!),
+          leading: const Icon(Icons.error_outline),
+          actions: [TextButton(onPressed: s.refresh, child: const Text('Erneut versuchen'))],
+        ),
+    ];
+
+    return Column(children: [
+      ...header,
+      Expanded(
+        child: RefreshIndicator(
+          onRefresh: s.refresh,
+          child: s.items.isEmpty && !s.loading
+              ? ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
+                  const SizedBox(height: 120),
+                  Center(child: Text(s.searchQuery != null ? 'Keine Treffer' : 'Keine Nachrichten')),
+                ])
+              : ListView.separated(
+                  controller: _scroll,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  itemCount: s.items.length + 1,
+                  separatorBuilder: (_, __) => const Divider(indent: 64),
+                  itemBuilder: (context, i) {
+                    if (i == s.items.length) {
+                      return s.loadingMore
+                          ? const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : const SizedBox(height: 80);
+                    }
+                    return _tile(s, s.items[i], wide);
+                  },
+                ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _tile(AppState s, MailItem item, bool wide) {
+    final left = s.settings.swipeLeft;
+    final right = s.settings.swipeRight;
+    final selectionMode = s.selection.isNotEmpty;
+    DismissDirection dir;
+    if (selectionMode || (left == SwipeAction.none && right == SwipeAction.none)) {
+      dir = DismissDirection.none;
+    } else if (left == SwipeAction.none) {
+      dir = DismissDirection.startToEnd;
+    } else if (right == SwipeAction.none) {
+      dir = DismissDirection.endToStart;
+    } else {
+      dir = DismissDirection.horizontal;
+    }
+    final acc = s.account(item.accountId);
+    String? pendingTarget;
+
+    return Dismissible(
+      key: ValueKey(item.key),
+      direction: dir,
+      background: SwipeBackground(action: right, alignLeft: true),
+      secondaryBackground: SwipeBackground(action: left, alignLeft: false),
+      dismissThresholds: const {
+        DismissDirection.startToEnd: 0.3,
+        DismissDirection.endToStart: 0.3,
+      },
+      confirmDismiss: (d) async {
+        final action = d == DismissDirection.startToEnd ? right : left;
+        switch (action) {
+          case SwipeAction.none:
+            return false;
+          case SwipeAction.toggleRead:
+            s.markSeen([item], !item.seen);
+            return false;
+          case SwipeAction.toggleFlag:
+            s.setFlagged([item], !item.flagged);
+            return false;
+          case SwipeAction.delete:
+          case SwipeAction.archive:
+            return true;
+          case SwipeAction.move:
+            pendingTarget = await pickFolder(context, s, item.accountId, exclude: item.folderPath);
+            return pendingTarget != null;
+          case SwipeAction.moveAi:
+            pendingTarget = await aiPickFolder(context, s, item);
+            return pendingTarget != null;
+        }
+      },
+      onDismissed: (d) {
+        final action = d == DismissDirection.startToEnd ? right : left;
+        s.removeWithUndo([item], action, target: pendingTarget);
+      },
+      child: MailTile(
+        item: item,
+        selected: s.selection.contains(item.key),
+        opened: wide && s.openItem?.key == item.key,
+        accountColor: s.unified && s.accounts.length > 1 && acc != null ? Color(acc.color) : null,
+        onTap: () => selectionMode ? s.toggleSelect(item) : _open(s, item, wide),
+        onLongPress: () => s.toggleSelect(item),
+        onAvatarTap: () => s.toggleSelect(item),
+      ),
+    );
+  }
+}

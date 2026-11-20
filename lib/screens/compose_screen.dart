@@ -1,0 +1,274 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../app_state.dart';
+import '../mail_service.dart';
+import '../widgets/common.dart';
+
+enum ComposeMode { newMail, reply, replyAll, forward }
+
+const _quoteMarker = '-------- Ursprüngliche Nachricht --------';
+
+class ComposeScreen extends StatefulWidget {
+  final ComposeMode mode;
+  final MailDetail? original;
+  final String? initialText;
+  final String? accountId;
+  final String? initialTo;
+  const ComposeScreen(
+      {super.key, this.mode = ComposeMode.newMail, this.original, this.initialText, this.accountId, this.initialTo});
+
+  @override
+  State<ComposeScreen> createState() => _ComposeScreenState();
+}
+
+class _ComposeScreenState extends State<ComposeScreen> {
+  final _to = TextEditingController();
+  final _cc = TextEditingController();
+  final _bcc = TextEditingController();
+  final _subject = TextEditingController();
+  final _body = TextEditingController();
+  late String _accountId;
+  bool _showCc = false;
+  bool _busy = false;
+  final List<(String, Uint8List)> _attachments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    final s = context.read<AppState>();
+    final o = widget.original;
+    _accountId = o?.item.accountId ?? widget.accountId ?? s.accounts.first.id;
+    if (s.account(_accountId) == null) _accountId = s.accounts.first.id;
+    final acc = s.account(_accountId)!;
+    final own = s.accounts.map((a) => a.email.toLowerCase()).toSet();
+    if (widget.initialTo != null) _to.text = widget.initialTo!;
+
+    if (o != null) {
+      final subj = o.item.subject;
+      switch (widget.mode) {
+        case ComposeMode.reply:
+        case ComposeMode.replyAll:
+          final target = o.replyToAddrs.isNotEmpty ? o.replyToAddrs : o.fromAddrs;
+          var to = target.map(formatAddress).toList();
+          if (widget.mode == ComposeMode.replyAll) {
+            to.addAll(o.toAddrs.where((a) => !own.contains(a.email.toLowerCase())).map(formatAddress));
+            final cc = o.ccAddrs.where((a) => !own.contains(a.email.toLowerCase())).map(formatAddress).toList();
+            if (cc.isNotEmpty) {
+              _cc.text = cc.join(', ');
+              _showCc = true;
+            }
+          }
+          to = to.toSet().toList();
+          _to.text = to.join(', ');
+          _subject.text = RegExp(r'^(re|aw|antw):', caseSensitive: false).hasMatch(subj) ? subj : 'Re: $subj';
+        case ComposeMode.forward:
+          _subject.text = RegExp(r'^(wg|fw|fwd):', caseSensitive: false).hasMatch(subj) ? subj : 'Wg: $subj';
+          for (final a in o.attachments) {
+            final b = o.attachmentBytes(a);
+            if (b != null) _attachments.add((a.name, b));
+          }
+        case ComposeMode.newMail:
+          break;
+      }
+    }
+
+    final buf = StringBuffer(widget.initialText ?? '');
+    if (acc.signature.trim().isNotEmpty) buf.write('\n\n-- \n${acc.signature.trim()}');
+    if (o != null) {
+      buf.write('\n\n$_quoteMarker\n');
+      buf.write('Von: ${o.item.fromName.isNotEmpty ? '${o.item.fromName} <${o.item.fromEmail}>' : o.item.fromEmail}\n');
+      buf.write('Datum: ${formatFullDate(o.item.date)}\n');
+      buf.write('An: ${o.to}\n');
+      if (o.cc.isNotEmpty) buf.write('Cc: ${o.cc}\n');
+      buf.write('Betreff: ${o.item.subject}\n\n');
+      final quoted = widget.mode == ComposeMode.forward
+          ? o.text
+          : o.text.split('\n').map((l) => '> $l').join('\n');
+      buf.write(quoted);
+    }
+    _body.text = buf.toString();
+    _body.selection = TextSelection.collapsed(offset: (widget.initialText ?? '').length);
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_to, _cc, _bcc, _subject, _body]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _attach() async {
+    final res = await FilePicker.platform.pickFiles(allowMultiple: true, withData: true);
+    if (res == null) return;
+    setState(() {
+      for (final f in res.files) {
+        if (f.bytes != null) _attachments.add((f.name, f.bytes!));
+      }
+    });
+  }
+
+  Future<void> _polish() async {
+    final s = context.read<AppState>();
+    final text = _body.text;
+    final idx = text.indexOf(_quoteMarker);
+    final own = idx >= 0 ? text.substring(0, idx) : text;
+    final rest = idx >= 0 ? text.substring(idx) : '';
+    if (own.trim().isEmpty) {
+      s.toast('Erst etwas schreiben – dann überarbeitet die KI den Text.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final better = await s.aiPolish(own.trim());
+      _body.text = '$better\n\n$rest'.trimRight();
+    } catch (e) {
+      s.toast(AppState.errText(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final s = context.read<AppState>();
+    if (_to.text.trim().isEmpty) {
+      s.toast('Bitte einen Empfänger eintragen.');
+      return;
+    }
+    if (_subject.text.trim().isEmpty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Ohne Betreff senden?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Senden')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    setState(() => _busy = true);
+    try {
+      await s.send(
+        accountId: _accountId,
+        to: _to.text,
+        cc: _cc.text,
+        bcc: _bcc.text,
+        subject: _subject.text.trim(),
+        body: _body.text,
+        attachments: _attachments,
+        replyTo: widget.mode == ComposeMode.forward ? null : widget.original,
+      );
+      s.toast('E-Mail gesendet');
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      s.toast('Senden fehlgeschlagen: ${AppState.errText(e)}');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final title = switch (widget.mode) {
+      ComposeMode.newMail => 'Neue E-Mail',
+      ComposeMode.reply => 'Antworten',
+      ComposeMode.replyAll => 'Allen antworten',
+      ComposeMode.forward => 'Weiterleiten',
+    };
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(tooltip: 'Anhang', icon: const Icon(Icons.attach_file), onPressed: _busy ? null : _attach),
+          IconButton(
+              tooltip: 'Mit KI überarbeiten',
+              icon: const Icon(Icons.auto_awesome),
+              onPressed: _busy ? null : _polish),
+          IconButton(tooltip: 'Senden', icon: const Icon(Icons.send), onPressed: _busy ? null : _send),
+        ],
+      ),
+      body: Column(children: [
+        if (_busy) const LinearProgressIndicator(minHeight: 2),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: [
+              DropdownButtonFormField<String>(
+                value: _accountId,
+                decoration: const InputDecoration(labelText: 'Von', border: InputBorder.none),
+                items: [
+                  for (final a in s.accounts)
+                    DropdownMenuItem(value: a.id, child: Text('${a.displayName} <${a.email}>')),
+                ],
+                onChanged: (v) => setState(() => _accountId = v ?? _accountId),
+              ),
+              const Divider(),
+              TextField(
+                controller: _to,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'An',
+                  border: InputBorder.none,
+                  suffixIcon: IconButton(
+                    tooltip: 'Cc/Bcc',
+                    icon: Icon(_showCc ? Icons.expand_less : Icons.expand_more),
+                    onPressed: () => setState(() => _showCc = !_showCc),
+                  ),
+                ),
+              ),
+              if (_showCc) ...[
+                const Divider(),
+                TextField(
+                  controller: _cc,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'Cc', border: InputBorder.none),
+                ),
+                const Divider(),
+                TextField(
+                  controller: _bcc,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(labelText: 'Bcc', border: InputBorder.none),
+                ),
+              ],
+              const Divider(),
+              TextField(
+                controller: _subject,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(labelText: 'Betreff', border: InputBorder.none),
+              ),
+              const Divider(),
+              if (_attachments.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Wrap(spacing: 8, runSpacing: 4, children: [
+                    for (var i = 0; i < _attachments.length; i++)
+                      InputChip(
+                        avatar: const Icon(Icons.attach_file, size: 18),
+                        label: Text(_attachments[i].$1),
+                        onDeleted: () => setState(() => _attachments.removeAt(i)),
+                      ),
+                  ]),
+                ),
+              TextField(
+                controller: _body,
+                autofocus: widget.mode == ComposeMode.newMail ? false : true,
+                maxLines: null,
+                minLines: 12,
+                keyboardType: TextInputType.multiline,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(hintText: 'Nachricht', border: InputBorder.none),
+              ),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
+}

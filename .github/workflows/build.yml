@@ -1,0 +1,133 @@
+name: Build EchoWP-Mail
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Minimalrechte: Bauen nur lesend, nur der Release-Job darf schreiben
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Android-APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+      - name: Plattform-Dateien erzeugen
+        run: flutter create --platforms=android,windows --org de.echowp --project-name echowp_mail .
+      - run: flutter pub get
+      - name: App-Icons erzeugen
+        run: dart run flutter_launcher_icons
+      - name: Signierschlüssel aus GitHub-Secrets
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ] || [ -z "$KS_PW" ]; then
+            echo "::error::Secrets ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD fehlen"
+            exit 1
+          fi
+          mkdir -p keystore
+          printf '%s' "$KS_B64" | tr -d ' \r\n' | base64 -d > keystore/echowp-release.jks
+          keytool -list -keystore keystore/echowp-release.jks -storepass "$KS_PW" -alias echowp > /dev/null || { echo "::error::Keystore oder Passwort ungültig"; exit 1; }
+          echo "Keystore aus Secret geladen"
+      - name: Plattform anpassen
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: python3 tool/patch_platforms.py
+      - name: Code prüfen
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib test
+      - name: Automatische Tests
+        run: flutter test --reporter expanded
+      - name: APK bauen (je Prozessortyp, verkleinert)
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64,android-arm
+      - name: APKs prüfen (Größe, versionCode, Signatur)
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/EchoWP-Mail.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/EchoWP-Mail-alte-Geraete-32bit.apk
+          AAPT=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)
+          for f in dist/*.apk; do
+            echo "== $f: $(du -h "$f" | cut -f1)"
+            "$AAPT/aapt2" dump badging "$f" | grep -E "^package:|native-code"
+            "$AAPT/apksigner" verify --print-certs "$f" | grep -m1 "SHA-256"
+          done
+          VC=$("$AAPT/aapt2" dump badging dist/EchoWP-Mail.apk | sed -nE "s/.*versionCode='([0-9]+)'.*/\1/p")
+          echo "versionCode arm64: $VC"
+          # Muss über den bisherigen Versionen (bis 3) liegen, damit Updates drüberinstallierbar bleiben
+          [ "$VC" -gt 3 ] || { echo "::error::versionCode $VC zu niedrig"; exit 1; }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: EchoWP-Mail-Android
+          path: dist/*.apk
+
+  windows:
+    name: Windows-EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+      - name: Plattform-Dateien erzeugen
+        run: flutter create --platforms=android,windows --org de.echowp --project-name echowp_mail .
+      - run: flutter pub get
+      - name: App-Icons erzeugen
+        run: dart run flutter_launcher_icons
+      - name: Plattform anpassen
+        run: python tool/patch_platforms.py
+      - name: EXE bauen
+        run: flutter build windows --release
+      - name: Installer und ZIP erstellen
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc installer\echowp_mail.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup fehlgeschlagen" }
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath dist\EchoWP-Mail-Windows-portable.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: EchoWP-Mail-Windows
+          path: dist/*
+
+  release:
+    name: Download-Seite (Release)
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Version lesen
+        id: ver
+        run: |
+          V=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          echo "full=$V" >> "$GITHUB_OUTPUT"
+          echo "short=$(echo $V | sed -E 's/^([0-9]+\.[0-9]+)\.0$/\1/')" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: v${{ steps.ver.outputs.full }}-build-${{ github.run_number }}
+          name: EchoWP-Mail v${{ steps.ver.outputs.short }} (Build ${{ github.run_number }})
+          make_latest: true
+          body: |
+            **Android:** `EchoWP-Mail.apk` herunterladen und über die vorhandene App installieren (für alle aktuellen Handys, 64-Bit).
+            Nur für sehr alte 32-Bit-Geräte: `EchoWP-Mail-alte-Geraete-32bit.apk`.
+            **Windows:** `EchoWP-Mail-Setup.exe` über die vorhandene Version installieren (oder die portable ZIP entpacken).
+          files: dist/*

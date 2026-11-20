@@ -1,0 +1,45 @@
+name: echowp_mail
+description: EchoWP-Mail – E-Mail-Client mit KI-Funktionen für Android und Windows.
+publish_to: 'none'
+version: 2.1.0+4
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  enough_mail: ^2.1.6
+  provider: ^6.1.2
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.2
+  http: ^1.2.2
+  cryptography: ^2.7.0
+  file_picker: ^8.1.2
+  flutter_widget_from_html_core: ^0.15.2
+  url_launcher: ^6.3.0
+  flutter_local_notifications: ^19.4.0
+  intl: any
+  workmanager: ^0.10.0
+  flutter_background_service: ^5.1.0
+  android_intent_plus: ^6.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#0277BD"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+  min_sdk_android: 24
+  windows:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    icon_size: 256
