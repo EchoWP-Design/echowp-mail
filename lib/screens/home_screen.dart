@@ -340,9 +340,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
     ];
 
-    return Column(children: [
-      ...header,
-      Expanded(
+    return LayoutBuilder(
+      builder: (context, box) => Column(children: [
+        // Fehlermeldungen dürfen die Liste nicht wegdrücken (schmale Spalte) → begrenzt und scrollbar
+        if (header.isNotEmpty)
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: box.maxHeight * 0.4),
+            child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: header)),
+          ),
+        Expanded(
         child: RefreshIndicator(
           onRefresh: s.refresh,
           child: s.items.isEmpty && !s.loading
@@ -369,7 +375,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
         ),
       ),
-    ]);
+      ]),
+    );
   }
 
   Widget _tile(AppState s, MailItem item, bool wide) {
