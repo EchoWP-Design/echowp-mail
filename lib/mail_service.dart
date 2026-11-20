@@ -315,6 +315,15 @@ class AccountConnection {
         return MailDetail.fromMime(item, res.messages.first);
       });
 
+  /// Kopfdaten einer einzelnen Mail (z. B. beim Öffnen aus einer Benachrichtigung).
+  Future<MailItem?> fetchItem(String path, int uid) => _run((c) async {
+        await _select(c, path, force: true);
+        final res = await c.uidFetchMessages(
+            em.MessageSequence.fromId(uid, isUid: true), '(UID FLAGS ENVELOPE BODYSTRUCTURE)');
+        if (res.messages.isEmpty) return null;
+        return mimeToItem(res.messages.first, account.id, path);
+      });
+
   Future<void> setFlag(String path, List<int> uids, String flag, bool add) => _run((c) async {
         await _select(c, path);
         await c.uidStore(em.MessageSequence.fromIds(uids, isUid: true), [flag],

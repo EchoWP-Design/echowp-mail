@@ -61,6 +61,27 @@ class UnreadBadge extends StatelessWidget {
   }
 }
 
+/// Plakette „N neu“ für neu synchronisierte, noch nicht angesehene Mails (auffällig gelb).
+class NewBadge extends StatelessWidget {
+  final int count;
+  const NewBadge({super.key, required this.count});
+
+  static const color = Color(0xFFFFC107);
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) return const SizedBox.shrink();
+    return Container(
+      key: const ValueKey('new-badge'),
+      margin: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+      child: Text(count > 999 ? '999+ neu' : '$count neu',
+          style: const TextStyle(color: Colors.black87, fontSize: 11, fontWeight: FontWeight.bold)),
+    );
+  }
+}
+
 String formatListDate(DateTime d) {
   final now = DateTime.now();
   if (d.year == now.year && d.month == now.month && d.day == now.day) return DateFormat('HH:mm').format(d);

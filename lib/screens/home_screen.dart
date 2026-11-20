@@ -1,6 +1,9 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../models.dart';
@@ -14,6 +17,9 @@ import 'message_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  /// Ab dieser Zeit im Hintergrund gilt die Rückkehr als „App öffnen“ (→ Alle Posteingänge).
+  static Duration reopenAfter = const Duration(seconds: 30);
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -23,11 +29,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _searchCtrl = TextEditingController();
   bool _searchOpen = false;
 
+  /// Breite der Mail-Liste neben der Vorschau (PC/Tablet), per Trenner verschiebbar.
+  double? _listWidth;
+  static const _listWidthKey = 'list_width';
+  static const minListWidth = 280.0;
+  static const minPreviewWidth = 360.0;
+
+  /// Wann die App in den Hintergrund ging (für „beim Öffnen: Alle Posteingänge“).
+  DateTime? _backgroundSince;
+  late final AppState _state;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     HardwareKeyboard.instance.addHandler(_onKey);
+    _state = context.read<AppState>()..openMail = _openFromNotification;
+    _loadListWidth();
     _scroll.addListener(() {
       if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 500) {
         context.read<AppState>().loadMore();
@@ -35,8 +53,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _loadListWidth() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final w = prefs.getDouble(_listWidthKey);
+      if (w != null && mounted) setState(() => _listWidth = w);
+    } catch (_) {}
+  }
+
+  Future<void> _saveListWidth() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final w = _listWidth;
+      if (w == null) {
+        await prefs.remove(_listWidthKey);
+      } else {
+        await prefs.setDouble(_listWidthKey, w);
+      }
+    } catch (_) {}
+  }
+
+  /// Aus einer Benachrichtigung: Mail öffnen bzw. direkt antworten.
+  Future<void> _openFromNotification(MailItem item, {required bool reply}) async {
+    final s = context.read<AppState>();
+    final nav = s.navigatorKey.currentState ?? Navigator.of(context);
+    nav.popUntil((r) => r.isFirst);
+    final wide = MediaQuery.sizeOf(context).width >= 800;
+    if (!reply) {
+      if (wide) {
+        s.setOpen(item);
+      } else {
+        nav.push(MaterialPageRoute(builder: (_) => MessageScreen(item: item)));
+      }
+      return;
+    }
+    final detail = await s.loadDetail(item);
+    if (!mounted) return;
+    if (wide) s.setOpen(item);
+    nav.push(MaterialPageRoute(builder: (_) => ComposeScreen(mode: ComposeMode.reply, original: detail)));
+  }
+
   @override
   void dispose() {
+    if (_state.openMail == _openFromNotification) _state.openMail = null;
     WidgetsBinding.instance.removeObserver(this);
     HardwareKeyboard.instance.removeHandler(_onKey);
     _scroll.dispose();
@@ -54,8 +113,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) context.read<AppState>().poll();
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _backgroundSince ??= DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      final s = context.read<AppState>();
+      final since = _backgroundSince;
+      _backgroundSince = null;
+      // App wieder geöffnet (nicht nur kurz gewechselt) → Startansicht „Alle Posteingänge“,
+      // sofern gerade nichts anderes (Mail, Antwort) im Vordergrund offen ist.
+      final onHome = ModalRoute.of(context)?.isCurrent ?? true;
+      if (since != null && onHome && DateTime.now().difference(since) >= HomeScreen.reopenAfter) {
+        s.showUnifiedInbox();
+      }
+      s.poll();
+    }
   }
+
+
 
   void _open(AppState s, MailItem item, bool wide) {
     if (wide) {
@@ -75,11 +149,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final list = _buildList(s, twoPane);
     Widget body;
     if (twoPane) {
+      final avail = width - (threePane ? 281 : 0) - _PaneDivider.width;
+      final maxList = max(minListWidth, avail - minPreviewWidth);
+      final listWidth = (_listWidth ?? (threePane ? 420 : width * 0.42)).clamp(minListWidth, maxList).toDouble();
       body = Row(children: [
         if (threePane) const SizedBox(width: 280, child: FolderPane()),
         if (threePane) const VerticalDivider(width: 1),
-        SizedBox(width: threePane ? 420 : width * 0.42, child: list),
-        const VerticalDivider(width: 1),
+        SizedBox(width: listWidth, child: list),
+        _PaneDivider(
+          onDrag: (dx) => setState(() => _listWidth = (listWidth + dx).clamp(minListWidth, maxList).toDouble()),
+          onDragEnd: _saveListWidth,
+          onReset: () {
+            setState(() => _listWidth = null);
+            _saveListWidth();
+          },
+        ),
         Expanded(
           child: s.openItem == null
               ? Center(
@@ -348,6 +432,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onTap: () => selectionMode ? s.toggleSelect(item) : _open(s, item, wide),
         onLongPress: () => s.toggleSelect(item),
         onAvatarTap: () => s.toggleSelect(item),
+      ),
+    );
+  }
+}
+
+/// Verschiebbarer Trenner zwischen Mail-Liste und Vorschau (Maus ziehen, Doppelklick = Standardbreite).
+class _PaneDivider extends StatelessWidget {
+  static const width = 7.0;
+  final void Function(double dx) onDrag;
+  final VoidCallback onDragEnd;
+  final VoidCallback onReset;
+  const _PaneDivider({required this.onDrag, required this.onDragEnd, required this.onReset});
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      key: const ValueKey('pane-divider'),
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (d) => onDrag(d.delta.dx),
+        onHorizontalDragEnd: (_) => onDragEnd(),
+        onDoubleTap: onReset,
+        child: const SizedBox(
+          width: width,
+          child: Center(child: VerticalDivider(width: 1)),
+        ),
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:workmanager/workmanager.dart';
 
 import 'mail_service.dart';
 import 'models.dart';
+import 'new_mail.dart';
 import 'notifications.dart';
 import 'storage.dart';
 
@@ -70,8 +71,12 @@ class MailCheck {
     final alreadyHandled = current != null && current >= next;
     if (!alreadyHandled) await prefs.setInt(key, next);
     if (last == null) return const [];
-    if (!alreadyHandled && news.isNotEmpty && settings.notifications && a.syncOf(path).notify) {
-      await Notifier.notifyNew(a.email, news);
+    if (!alreadyHandled && news.isNotEmpty) {
+      // Für den „neu“-Zähler hinter Konto und Ordner vormerken
+      await NewMailStore.add(a.id, path, news.map((n) => n.uid));
+      if (settings.notifications && a.syncOf(path).notify) {
+        await Notifier.notifyNew(a, path, news);
+      }
     }
     return news;
   }

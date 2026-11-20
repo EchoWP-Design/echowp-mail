@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:enough_mail/enough_mail.dart' as em;
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart' show NotificationResponse;
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +14,8 @@ import 'background.dart';
 import 'drive_sync.dart';
 import 'mail_service.dart';
 import 'models.dart';
+import 'new_mail.dart';
+import 'notifications.dart';
 import 'push.dart';
 import 'storage.dart';
 
@@ -20,6 +23,7 @@ int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
 
 class AppState extends ChangeNotifier {
   final messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final navigatorKey = GlobalKey<NavigatorState>();
   final _storage = Storage();
   final mail = MailService();
   final ai = AiService();
@@ -49,6 +53,9 @@ class AppState extends ChangeNotifier {
   /// Ungelesene Mails: Konto → Ordnerpfad → Anzahl
   final Map<String, Map<String, int>> unread = {};
   final Map<String, Timer> _countTimers = {};
+
+  /// Neu eingetroffene (noch nicht angesehene) Mails: Konto → Ordnerpfad → UIDs
+  final Map<String, Map<String, Set<int>>> newMail = {};
   final drive = DriveSync();
 
   // ---------------------------------------------------------------- Laden
@@ -57,6 +64,7 @@ class AppState extends ChangeNotifier {
     accounts = await _storage.loadAccounts();
     settings = await _storage.loadSettings();
     await drive.load();
+    await reloadNew();
     for (final a in accounts) {
       mail.register(a);
     }
@@ -152,6 +160,8 @@ class AppState extends ChangeNotifier {
     }));
     all.sort(_byDate);
     items = all;
+    // Inzwischen (z. B. auf einem anderen Gerät) gelesene Mails zählen nicht mehr als neu
+    _dropNew(all.where((i) => i.seen));
     for (final t in _targets()) {
       _scheduleCounts(t.$1, delay: const Duration(milliseconds: 300));
     }
@@ -186,6 +196,8 @@ class AppState extends ChangeNotifier {
   void setView(String? accountId, [String path = 'INBOX']) {
     viewAccountId = accountId;
     viewPath = path;
+    // Ordner angesehen → seine Mails gelten nicht mehr als „neu“
+    if (accountId != null) clearNew(accountId, path);
     searchQuery = null;
     selection.clear();
     openItem = null;
@@ -260,6 +272,7 @@ class AppState extends ChangeNotifier {
       if (i.seen != seen) _adjustUnread(i, seen ? -1 : 1);
       i.seen = seen;
     }
+    if (seen) _dropNew(list);
     notifyListeners();
     try {
       for (final g in _group(list).values) {
@@ -296,6 +309,8 @@ class AppState extends ChangeNotifier {
     for (final r in removed.where((r) => !r.seen)) {
       _adjustUnread(r, -1);
     }
+    final wasNew = removed.where(isNew).toList();
+    _dropNew(wasNew);
     if (openItem != null && keys.contains(openItem!.key)) openItem = null;
     selection.removeAll(keys);
     notifyListeners();
@@ -319,6 +334,7 @@ class AppState extends ChangeNotifier {
           for (final r in removed.where((r) => !r.seen)) {
             _adjustUnread(r, 1);
           }
+          _addNew(wasNew);
           items.addAll(removed.where((r) => !items.any((i) => i.key == r.key)));
           items.sort(_byDate);
           notifyListeners();
@@ -383,6 +399,7 @@ class AppState extends ChangeNotifier {
     if (markSeen && !item.seen) {
       item.seen = true;
       _adjustUnread(item, -1);
+      _dropNew([item]);
       notifyListeners();
     }
     return d;
@@ -425,6 +442,92 @@ class AppState extends ChangeNotifier {
     final m = unread[i.accountId];
     if (m == null || !m.containsKey(i.folderPath)) return;
     m[i.folderPath] = max(0, m[i.folderPath]! + delta);
+  }
+
+  // ---------------------------------------------------------------- Neu-Zähler
+
+  int newFor(String accountId, String path) => newMail[accountId]?[path]?.length ?? 0;
+
+  /// Alle neuen Mails eines Kontos (über alle Ordner).
+  int newForAccount(String accountId) =>
+      (newMail[accountId] ?? const <String, Set<int>>{}).values.fold(0, (sum, s) => sum + s.length);
+
+  bool isNew(MailItem i) => newMail[i.accountId]?[i.folderPath]?.contains(i.uid) ?? false;
+
+  /// Stand aus dem gemeinsamen Speicher holen (App, Push-Dienst, Hintergrundabruf).
+  Future<void> reloadNew() async {
+    try {
+      final all = await NewMailStore.loadAll();
+      final ids = accounts.map((a) => a.id).toSet();
+      newMail
+        ..clear()
+        ..addAll({
+          for (final e in all.entries)
+            if (ids.contains(e.key)) e.key: e.value,
+        });
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void clearNew(String accountId, String path) {
+    if (newMail[accountId]?.remove(path) != null) notifyListeners();
+    NewMailStore.clear(accountId, path).catchError((_) {});
+  }
+
+  void _dropNew(Iterable<MailItem> list) {
+    for (final g in _group(list.where(isNew).toList()).values) {
+      final f = g.first;
+      final set = newMail[f.accountId]?[f.folderPath];
+      if (set == null) continue;
+      final uids = g.map((i) => i.uid).toList();
+      set.removeAll(uids);
+      if (set.isEmpty) newMail[f.accountId]!.remove(f.folderPath);
+      NewMailStore.remove(f.accountId, f.folderPath, uids).catchError((_) {});
+    }
+  }
+
+  void _addNew(List<MailItem> list) {
+    for (final g in _group(list).values) {
+      final f = g.first;
+      final uids = g.map((i) => i.uid).toList();
+      ((newMail[f.accountId] ??= {})[f.folderPath] ??= {}).addAll(uids);
+      NewMailStore.add(f.accountId, f.folderPath, uids).catchError((_) {});
+    }
+  }
+
+  /// Beim Öffnen der App immer mit „Alle Posteingänge“ starten.
+  void showUnifiedInbox() {
+    if (unified && searchQuery == null && openItem == null) return;
+    setView(null);
+  }
+
+  // ---------------------------------------------------------------- Benachrichtigung angetippt
+
+  /// Antippen öffnet die Mail, „Antworten“ öffnet direkt das Antwortfenster.
+  /// [openMail] wird von der Oberfläche gesetzt (Navigation zum Lesen/Antworten).
+  Future<void> Function(MailItem item, {required bool reply})? openMail;
+
+  Future<void> handleNotification(NotificationResponse r) async {
+    final p = NotifyPayload.decode(r.payload);
+    if (r.actionId == NotifyAction.read || r.actionId == NotifyAction.delete) {
+      // bereits auf dem Server erledigt – Anzeige auffrischen
+      await reloadNew();
+      if (p != null) _scheduleCounts(p.accountId, delay: Duration.zero);
+      if (!loading) refresh();
+      return;
+    }
+    showUnifiedInbox();
+    if (p == null || account(p.accountId) == null) return;
+    try {
+      final item = await mail.conn(p.accountId).fetchItem(p.path, p.uids.first);
+      if (item == null) {
+        toast('Nachricht nicht mehr vorhanden (evtl. verschoben oder gelöscht).');
+        return;
+      }
+      await openMail?.call(item, reply: r.actionId == NotifyAction.reply);
+    } catch (e) {
+      toast('Nachricht konnte nicht geöffnet werden: ${errText(e)}');
+    }
   }
 
   /// Entf-Taste: löscht die Auswahl, sonst die geöffnete Mail und öffnet die nächste.
@@ -541,6 +644,7 @@ class AppState extends ChangeNotifier {
   void _insertNews(String accountId, String path, List<MailItem> news) {
     if (news.isEmpty) return;
     _scheduleCounts(accountId);
+    reloadNew();
     final visible = (unified && path == 'INBOX') || (viewAccountId == accountId && viewPath == path);
     if (!visible || searchQuery != null) return;
     final keys = items.map((i) => i.key).toSet();
@@ -567,6 +671,7 @@ class AppState extends ChangeNotifier {
     } finally {
       _polling = false;
     }
+    await reloadNew();
     syncPull();
   }
 
@@ -594,6 +699,7 @@ class AppState extends ChangeNotifier {
         final path = data?['path'] as String?;
         if (acc == null || path == null) return;
         _scheduleCounts(acc);
+        reloadNew();
         final visible = (unified && path == 'INBOX') || (viewAccountId == acc && viewPath == path);
         if (visible && searchQuery == null && !loading) refresh();
       });
@@ -657,6 +763,8 @@ class AppState extends ChangeNotifier {
     mail.remove(id);
     folders.remove(id);
     unread.remove(id);
+    newMail.remove(id);
+    await NewMailStore.clearAccount(id);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(MailCheck.uidKey(id));
     if (viewAccountId == id) {

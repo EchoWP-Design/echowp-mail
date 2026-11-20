@@ -33,6 +33,16 @@ def manifest(t: str) -> str:
             "    </application>",
             1,
         )
+    # Knöpfe in Benachrichtigungen (Löschen / Als gelesen / Antworten)
+    if "com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" not in t:
+        t = t.replace(
+            "</application>",
+            '    <receiver\n'
+            '            android:exported="false"\n'
+            '            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />\n'
+            "    </application>",
+            1,
+        )
     for perm in [
         "android.permission.INTERNET",
         "android.permission.POST_NOTIFICATIONS",

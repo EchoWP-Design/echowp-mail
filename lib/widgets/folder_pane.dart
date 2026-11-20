@@ -127,6 +127,7 @@ class _AccountBlock extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: fg, fontWeight: FontWeight.w600)),
               ),
+              NewBadge(count: s.newForAccount(acc.id)),
               UnreadBadge(count: inboxUnread, background: fg, foreground: bg),
             ]),
             subtitle: Text(acc.email,
@@ -166,8 +167,12 @@ class _AccountBlock extends StatelessWidget {
                                 key: ValueKey('syncicon-${f.path}'), size: 14, color: fg.withValues(alpha: 0.85)),
                           ),
                       ]),
-                      trailing: AppState.showsUnread(f)
-                          ? UnreadBadge(count: s.unreadFor(acc.id, f.path), background: fg, foreground: bg)
+                      trailing: AppState.showsUnread(f) || s.newFor(acc.id, f.path) > 0
+                          ? Row(mainAxisSize: MainAxisSize.min, children: [
+                              NewBadge(count: s.newFor(acc.id, f.path)),
+                              if (AppState.showsUnread(f))
+                                UnreadBadge(count: s.unreadFor(acc.id, f.path), background: fg, foreground: bg),
+                            ])
                           : null,
                       selected: s.viewAccountId == acc.id && s.viewPath == f.path,
                       onTap: () {

@@ -2,6 +2,8 @@ import 'package:echowp_mail/app_state.dart';
 import 'package:echowp_mail/background.dart';
 import 'package:echowp_mail/mail_service.dart';
 import 'package:echowp_mail/models.dart';
+import 'package:echowp_mail/new_mail.dart';
+import 'package:echowp_mail/notifications.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
@@ -284,6 +286,168 @@ void main() {
       }
       expect(s.account('a1')!.foldersWith(SyncMode.push).length, maxPushFoldersPerAccount);
       await expectLater(s.updateFolderSync('a1', 'Zuviel', const FolderSync(SyncMode.push, true)), throwsStateError);
+    });
+  });
+
+  group('Neu-Zähler', () {
+    testWidgets('Zahl neuer Mails hinter Konto und Ordner', (tester) async {
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      s.newMail['a1'] = {
+        'INBOX': {11, 12},
+        'Rechnungen': {5},
+      };
+      await tester.pumpWidget(_wrap(s, const Scaffold(body: FolderPane())));
+      await tester.pump();
+      expect(find.text('3 neu'), findsOneWidget); // Konto: alle Ordner zusammen
+      expect(find.text('2 neu'), findsOneWidget); // Posteingang
+      expect(find.text('1 neu'), findsOneWidget); // Rechnungen
+      expect(find.byKey(const ValueKey('new-badge')), findsNWidgets(3));
+    });
+
+    test('Ordner öffnen setzt „neu“ zurück, Alle Posteingänge nicht', () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.newMail['a1'] = {
+        'INBOX': {1},
+        'Rechnungen': {2},
+      };
+      s.setView(null);
+      expect(s.newForAccount('a1'), 2);
+      s.setView('a1', 'Rechnungen');
+      expect(s.newFor('a1', 'Rechnungen'), 0);
+      expect(s.newFor('a1', 'INBOX'), 1);
+    });
+
+    test('gelesen markieren und löschen zählt herunter', () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final m1 = _mail(1), m2 = _mail(2);
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..items = [m1, m2];
+      s.newMail['a1'] = {
+        'INBOX': {1, 2},
+      };
+      expect(s.isNew(m1), isTrue);
+      await s.markSeen([m1], true);
+      expect(s.newFor('a1', 'INBOX'), 1);
+      expect(s.isNew(m1), isFalse);
+      s.removeWithUndo([m2], SwipeAction.delete);
+      expect(s.newFor('a1', 'INBOX'), 0);
+    });
+
+    test('gemeinsamer Speicher (App, Push-Dienst, Hintergrundabruf)', () async {
+      SharedPreferences.setMockInitialValues({});
+      await NewMailStore.add('a1', 'INBOX', [3, 4]);
+      await NewMailStore.add('a1', 'Ordner|mit|Strich', [7]);
+      await NewMailStore.remove('a1', 'INBOX', [3]);
+      final all = await NewMailStore.loadAll();
+      expect(all['a1']!['INBOX'], {4});
+      expect(all['a1']!['Ordner|mit|Strich'], {7});
+
+      final s = AppState()..accounts = [_acc()];
+      await s.reloadNew();
+      expect(s.newForAccount('a1'), 2);
+
+      await NewMailStore.clearAccount('a1');
+      expect(await NewMailStore.loadAll(), isEmpty);
+    });
+  });
+
+  group('Benachrichtigungen', () {
+    test('Knöpfe: Löschen, Als gelesen, Antworten (nur Einzelmail)', () {
+      final single = Notifier.actionsFor(single: true);
+      expect(single.map((a) => a.id), [NotifyAction.delete, NotifyAction.read, NotifyAction.reply]);
+      expect(single.map((a) => a.title), ['Löschen', 'Als gelesen markieren', 'Antworten']);
+      // Löschen/Gelesen laufen im Hintergrund, Antworten öffnet die App
+      expect(single[0].showsUserInterface, isFalse);
+      expect(single[1].showsUserInterface, isFalse);
+      expect(single[2].showsUserInterface, isTrue);
+      expect(Notifier.actionsFor(single: false).map((a) => a.id), [NotifyAction.delete, NotifyAction.read]);
+    });
+
+    test('Payload übersteht Kodieren/Dekodieren, Unsinn wird verworfen', () {
+      final p = NotifyPayload.decode(const NotifyPayload('a1', 'INBOX', [5, 6]).encode())!;
+      expect(p.accountId, 'a1');
+      expect(p.path, 'INBOX');
+      expect(p.uids, [5, 6]);
+      expect(NotifyPayload.decode(null), isNull);
+      expect(NotifyPayload.decode('kaputt'), isNull);
+      expect(NotifyPayload.decode('{"a":"a1","p":"INBOX","u":[]}'), isNull);
+    });
+  });
+
+  group('Startansicht', () {
+    test('Standard ist „Alle Posteingänge“', () {
+      final s = AppState();
+      expect(s.unified, isTrue);
+      expect(s.viewTitle, 'Alle Posteingänge');
+    });
+
+    testWidgets('nach Rückkehr aus dem Hintergrund wieder „Alle Posteingänge“', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final old = HomeScreen.reopenAfter;
+      HomeScreen.reopenAfter = Duration.zero;
+      addTearDown(() => HomeScreen.reopenAfter = old);
+
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      s.setView('a1', 'Rechnungen');
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      expect(s.unified, isFalse);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(s.unified, isTrue);
+      expect(find.text('Alle Posteingänge'), findsWidgets);
+      await _drain(tester);
+    });
+  });
+
+  group('Spaltenbreite (PC)', () {
+    testWidgets('Trenner zwischen Liste und Vorschau ist verschiebbar und wird gemerkt', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [_mail(1, seen: true)];
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+
+      final divider = find.byKey(const ValueKey('pane-divider'));
+      expect(divider, findsOneWidget);
+      final x0 = tester.getCenter(divider).dx;
+
+      await tester.drag(divider, const Offset(150, 0));
+      await tester.pump();
+      final x1 = tester.getCenter(divider).dx;
+      expect(x1, greaterThan(x0 + 100));
+
+      // Nicht schmaler als die Mindestbreite
+      await tester.drag(divider, const Offset(-2000, 0));
+      await tester.pump();
+      final x2 = tester.getCenter(divider).dx;
+      expect(x2, closeTo(281 + 280 + 3.5, 1)); // Ordnerleiste + Mindestbreite Liste
+
+      await tester.pump();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getDouble('list_width'), 280);
+      await _drain(tester);
     });
   });
 }

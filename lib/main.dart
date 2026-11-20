@@ -14,7 +14,12 @@ Future<void> main() async {
   await Notifier.init();
   final state = AppState();
   runApp(ChangeNotifierProvider.value(value: state, child: const EchoMailApp()));
+  // Antippen einer Benachrichtigung / „Antworten“, während die App läuft
+  Notifier.taps.listen(state.handleNotification);
   await state.load();
+  // App wurde über eine Benachrichtigung gestartet
+  final launch = await Notifier.launchResponse();
+  if (launch != null) await state.handleNotification(launch);
 }
 
 const seedColor = Color(0xFF0277BD);
@@ -46,6 +51,7 @@ class EchoMailApp extends StatelessWidget {
       title: 'EchoWP-Mail',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: state.messengerKey,
+      navigatorKey: state.navigatorKey,
       themeMode: mode,
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
