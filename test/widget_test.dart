@@ -1001,6 +1001,46 @@ void main() {
       await _drain(tester);
     });
 
+    testWidgets('Esc schließt nur die Vorschlagsliste, nicht das Schreiben-Fenster', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.book.remember([('Max Muster', 'max@example.de')]);
+      final back = (KeyEvent e) => handleKeyboardBack(e, s.routeObserver, s.navigatorKey);
+      HardwareKeyboard.instance.addHandler(back);
+      addTearDown(() => HardwareKeyboard.instance.removeHandler(back));
+      await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: s,
+        child: MaterialApp(
+          scaffoldMessengerKey: s.messengerKey,
+          navigatorKey: s.navigatorKey,
+          navigatorObservers: [s.routeObserver],
+          home: const Scaffold(body: Text('Start')),
+        ),
+      ));
+      s.navigatorKey.currentState!.push(MaterialPageRoute(builder: (_) => const ComposeScreen()));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.enterText(find.widgetWithText(TextField, 'An'), 'max');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('suggest-max@example.de')), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byKey(const ValueKey('suggest-max@example.de')), findsNothing);
+      expect(find.text('Entwurf verwerfen?'), findsNothing);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      // Zweites Esc: jetzt normal zurück (mit Rückfrage, weil Text im Feld)
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Entwurf verwerfen?'), findsOneWidget);
+      await tester.tap(find.text('Verwerfen'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await _drain(tester);
+    });
+
     testWidgets('Absender zum Adressbuch: Eintrag angelegt, Adresse übernommen, bearbeitbar', (tester) async {
       SharedPreferences.setMockInitialValues({});
       FlutterSecureStorage.setMockInitialValues({});

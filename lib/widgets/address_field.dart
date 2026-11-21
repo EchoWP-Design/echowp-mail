@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../contacts.dart';
+import '../keyboard.dart';
 
 /// Empfängerfeld (An/Cc/Bcc) mit Vorschlägen aus Adressbuch und Gedächtnis.
 /// Mehrere Adressen durch Komma trennen; Vorschläge beziehen sich auf die gerade getippte.
@@ -69,7 +70,8 @@ class _AddressFieldState extends State<AddressField> {
       optionsViewBuilder: (context, onSelected, options) {
         final list = options.toList();
         final cs = Theme.of(context).colorScheme;
-        return Align(
+        return EscGuarded(
+          child: Align(
           alignment: Alignment.topLeft,
           child: Material(
             elevation: 6,
@@ -98,6 +100,7 @@ class _AddressFieldState extends State<AddressField> {
               ),
             ),
           ),
+        ),
         );
       },
     );
