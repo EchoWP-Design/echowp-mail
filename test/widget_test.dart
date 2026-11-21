@@ -416,9 +416,10 @@ void main() {
       final m1 = _mail(1, seen: true);
       final s = AppState()
         ..accounts = [_acc()]
-        ..folders['a1'] = _folders;
-      s.setView('a1', 'Rechnungen');
-      s.items = [m1];
+        ..folders['a1'] = _folders
+        ..viewAccountId = 'a1'
+        ..viewPath = 'Rechnungen'
+        ..items = [m1];
       await tester.pumpWidget(_wrap(s, const HomeScreen()));
       await tester.pump();
       await tester.tap(find.text('Betreff 1'));

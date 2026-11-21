@@ -205,10 +205,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
             children: [
               DropdownButtonFormField<String>(
                 value: _accountId,
+                isExpanded: true, // lange Namen/Adressen kürzen statt über den Rand laufen
                 decoration: const InputDecoration(labelText: 'Von', border: InputBorder.none),
                 items: [
                   for (final a in s.accounts)
-                    DropdownMenuItem(value: a.id, child: Text('${a.displayName} <${a.email}>')),
+                    DropdownMenuItem(
+                      value: a.id,
+                      child: Text('${a.displayName} <${a.email}>', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ),
                 ],
                 onChanged: (v) => setState(() => _accountId = v ?? _accountId),
               ),
