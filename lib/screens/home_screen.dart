@@ -42,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Wann die App in den Hintergrund ging (für „beim Öffnen: Alle Posteingänge“).
   DateTime? _backgroundSince;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Tastaturfokus der Mail-Liste: Pfeile/Eingabe/Leertaste steuern dann die Liste.
+  final _listFocus = FocusNode(debugLabel: 'mail-list');
   late final AppState _state;
 
   @override
@@ -105,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     HardwareKeyboard.instance.removeHandler(_onKey);
     _scroll.dispose();
     _searchCtrl.dispose();
+    _listFocus.dispose();
     super.dispose();
   }
 
@@ -122,10 +126,42 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     LogicalKeyboardKey.space,
   };
 
-  /// true, wenn kein Bedienelement gezielt den Fokus hat (dann gehören Pfeile/Eingabe/Leertaste der Liste).
-  static bool _listOwnsKeys() {
+  /// true, wenn die Mail-Liste (bzw. nichts Bestimmtes) den Fokus hat – dann gehören Pfeile/Eingabe/Leertaste der Liste.
+  bool _listOwnsKeys() {
     final f = FocusManager.instance.primaryFocus;
-    return f == null || f is FocusScopeNode;
+    return f == null || f == _listFocus || f is FocusScopeNode;
+  }
+
+  /// Pfeile, Pos1/Ende, Eingabe, Leertaste – über den Fokus der Liste, damit Flutters
+  /// eingebaute Fokus-Navigation sie nicht zusätzlich auswertet.
+  KeyEventResult _onListKey(FocusNode node, KeyEvent e) {
+    if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
+    if (FocusManager.instance.primaryFocus != _listFocus) return KeyEventResult.ignored; // Unterelement hat Fokus
+    final hw = HardwareKeyboard.instance;
+    if (hw.isControlPressed || hw.isAltPressed || hw.isMetaPressed) return KeyEventResult.ignored;
+    final s = context.read<AppState>();
+    final wide = MediaQuery.sizeOf(context).width >= 800;
+    final k = e.logicalKey;
+    bool done;
+    if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.keyJ) {
+      done = _step(s, 1, wide);
+    } else if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyK) {
+      done = _step(s, -1, wide);
+    } else if (k == LogicalKeyboardKey.home) {
+      done = _step(s, -1, wide, absolute: true);
+    } else if (k == LogicalKeyboardKey.end) {
+      done = _step(s, 1, wide, absolute: true);
+    } else if (e is KeyDownEvent && (k == LogicalKeyboardKey.enter || k == LogicalKeyboardKey.numpadEnter)) {
+      final c = s.cursor;
+      done = !wide && c != null;
+      if (done) _open(s, c, false);
+    } else if (e is KeyDownEvent && k == LogicalKeyboardKey.space) {
+      done = s.toggleSelectCurrent();
+    } else {
+      return KeyEventResult.ignored;
+    }
+    // Auch ohne Wirkung (z. B. leere Liste) nicht an die Fokus-Navigation weiterreichen
+    return done || _navKeys.contains(k) ? KeyEventResult.handled : KeyEventResult.ignored;
   }
 
   bool _onKey(KeyEvent e) {
@@ -140,8 +176,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (k == LogicalKeyboardKey.escape) return e is KeyDownEvent && _escape(s, wide);
     if (textFieldHasFocus() || hw.isAltPressed) return false; // Alt-Kürzel gehören der geöffneten Mail
-    if (e is KeyRepeatEvent && !_navKeys.contains(k)) return false;
-    if (_navKeys.contains(k) && !ctrl && !_listOwnsKeys()) return false; // fokussierter Knopf hat Vorrang
+    if (e is KeyRepeatEvent) return false;
+    if (_navKeys.contains(k) && !ctrl) return false; // Liste: siehe _onListKey
 
     if (ctrl) {
       if (k == LogicalKeyboardKey.keyN && !shift) return _newMail(s);
@@ -173,24 +209,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     switch (k) {
-      case LogicalKeyboardKey.arrowDown:
-      case LogicalKeyboardKey.keyJ:
-        return _step(s, 1, wide);
-      case LogicalKeyboardKey.arrowUp:
-      case LogicalKeyboardKey.keyK:
-        return _step(s, -1, wide);
-      case LogicalKeyboardKey.home:
-        return _step(s, -1, wide, absolute: true);
-      case LogicalKeyboardKey.end:
-        return _step(s, 1, wide, absolute: true);
-      case LogicalKeyboardKey.enter:
-      case LogicalKeyboardKey.numpadEnter:
-        final c = s.cursor;
-        if (wide || c == null) return false;
-        _open(s, c, false);
-        return true;
-      case LogicalKeyboardKey.space:
-        return s.toggleSelectCurrent();
       case LogicalKeyboardKey.delete:
         return s.deleteFromKeyboard();
       case LogicalKeyboardKey.backspace:
@@ -224,8 +242,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return true;
     }
     if (!_listOwnsKeys()) {
-      // Fokus von Knopf/Ordner lösen → Pfeiltasten steuern wieder die Mail-Liste
-      FocusManager.instance.primaryFocus?.unfocus();
+      // Fokus von Knopf/Ordner/Mailtext lösen → Pfeiltasten steuern wieder die Mail-Liste
+      _listFocus.requestFocus();
       return true;
     }
     if (s.selection.isNotEmpty) {
@@ -338,6 +356,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _open(AppState s, MailItem item, bool wide) {
+    _listFocus.requestFocus();
     if (wide) {
       s.setOpen(item);
     } else {
@@ -390,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       key: _scaffoldKey,
       appBar: s.selection.isNotEmpty ? _selectionBar(s) : _normalBar(s),
       drawer: threePane ? null : const Drawer(child: FolderPane(inDrawer: true)),
-      body: body,
+      body: Focus(focusNode: _listFocus, autofocus: true, onKeyEvent: _onListKey, child: body),
       floatingActionButton: s.accounts.isEmpty || s.selection.isNotEmpty
           ? null
           : FloatingActionButton(

@@ -30,6 +30,13 @@ class _FolderJumpDialog extends StatefulWidget {
 
 class _FolderJumpDialogState extends State<_FolderJumpDialog> {
   final _filter = TextEditingController();
+  bool _done = false;
+
+  void _pick(FolderTarget target) {
+    if (_done) return; // Eingabe-Taste und Texteingabe-Aktion können beide auslösen
+    _done = true;
+    Navigator.pop(context, target);
+  }
 
   @override
   void dispose() {
@@ -57,8 +64,13 @@ class _FolderJumpDialogState extends State<_FolderJumpDialog> {
           Focus(
             // Pfeil runter springt aus dem Suchfeld in die Liste
             onKeyEvent: (node, e) {
-              if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.arrowDown) {
+              if (e is! KeyDownEvent) return KeyEventResult.ignored;
+              if (e.logicalKey == LogicalKeyboardKey.arrowDown) {
                 node.nextFocus();
+                return KeyEventResult.handled;
+              }
+              if (e.logicalKey == LogicalKeyboardKey.enter || e.logicalKey == LogicalKeyboardKey.numpadEnter) {
+                if (m.isNotEmpty) _pick(m.first.$1);
                 return KeyEventResult.handled;
               }
               return KeyEventResult.ignored;
@@ -73,7 +85,7 @@ class _FolderJumpDialogState extends State<_FolderJumpDialog> {
               ),
               onChanged: (_) => setState(() {}),
               onSubmitted: (_) {
-                if (m.isNotEmpty) Navigator.pop(context, m.first.$1);
+                if (m.isNotEmpty) _pick(m.first.$1);
               },
             ),
           ),
@@ -88,7 +100,7 @@ class _FolderJumpDialogState extends State<_FolderJumpDialog> {
                       leading: Icon(m[i].$1.$1 == null ? Icons.all_inbox : Icons.folder_outlined),
                       title: Text(m[i].$2, overflow: TextOverflow.ellipsis),
                       subtitle: m[i].$3.isEmpty ? null : Text(m[i].$3, overflow: TextOverflow.ellipsis),
-                      onTap: () => Navigator.pop(context, m[i].$1),
+                      onTap: () => _pick(m[i].$1),
                     ),
                   ),
           ),

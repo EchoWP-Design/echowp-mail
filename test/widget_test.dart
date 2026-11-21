@@ -808,9 +808,13 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Gehe zu Ordner'), findsOneWidget);
       await tester.enterText(find.byKey(const ValueKey('folder-jump-filter')), 'rechn');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(find.text('Rechnungen'), findsWidgets, reason: 'Filter zeigt den Ordner');
+      expect(find.text('Alle Posteingänge'), findsWidgets);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Gehe zu Ordner'), findsNothing, reason: 'Dialog nach Eingabe geschlossen');
       expect(s.viewAccountId, 'a1');
       expect(s.viewPath, 'Rechnungen');
       await _drain(tester);
