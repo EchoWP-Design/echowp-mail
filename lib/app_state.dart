@@ -107,7 +107,7 @@ class AppState extends ChangeNotifier {
 
   String get viewTitle {
     if (searchQuery != null) return 'Suche: $searchQuery';
-    if (unified) return 'Alle Posteingänge';
+    if (unified) return 'Aktuell';
     final f = folder(viewAccountId!, viewPath);
     return f?.displayName ?? (viewPath == 'INBOX' ? 'Posteingang' : viewPath);
   }
@@ -139,7 +139,7 @@ class AppState extends ChangeNotifier {
     return roleFolder(accountId, role);
   }
 
-  /// Ordner, deren ungelesene Mails in „Alle Posteingänge“ erscheinen: alle mit Push oder Automatik.
+  /// Ordner, deren ungelesene Mails in „Aktuell“ erscheinen: alle mit Push oder Automatik.
   List<(String, String)> get unifiedFolders => [
         for (final a in accounts)
           for (final p in MailCheck.polledFolders(a)) (a.id, p),
@@ -156,44 +156,85 @@ class AppState extends ChangeNotifier {
 
   String _k(String acc, String path) => '$acc\u0000$path';
 
-  Future<void> refresh() async {
+  /// Höchstdauer, die die Ladeanzeige beim Abruf läuft.
+  static const refreshLimit = Duration(seconds: 5);
+  int _refreshGen = 0;
+
+  /// Mails der aktuellen Ansicht abrufen. Die Ladeanzeige endet spätestens nach [limit];
+  /// was danach noch vom Server kommt, wird still nachgetragen (solange die Ansicht gleich bleibt).
+  Future<void> refresh({Duration limit = refreshLimit}) async {
     if (accounts.isEmpty) {
       items = [];
       notifyListeners();
       return;
     }
     if (searchQuery != null) return search(searchQuery!);
+    final gen = ++_refreshGen;
     loading = true;
     error = null;
     notifyListeners();
-    _lowest.clear();
+    final targets = _targets();
+    final isUnified = unified;
     final errors = <String>[];
-    final all = <MailItem>[];
-    await Future.wait(_targets().map((t) async {
+    final results = <(String, String), List<MailItem>>{};
+    final lowest = <String, int>{};
+    final job = Future.wait(targets.map((t) async {
       try {
-        if (unified) {
-          // „Alle Posteingänge“: ungelesene + mit Stern markierte Mails der synchronisierten Ordner (kein Nachladen)
-          all.addAll(await mail.conn(t.$1).fetchUnseen(t.$2));
+        if (isUnified) {
+          // „Aktuell“: ungelesene + mit Stern markierte Mails der synchronisierten Ordner (kein Nachladen)
+          results[t] = await mail.conn(t.$1).fetchUnseen(t.$2);
         } else {
           final r = await mail.conn(t.$1).fetchList(t.$2);
-          _lowest[_k(t.$1, t.$2)] = r.lowestSeq;
-          all.addAll(r.items);
+          lowest[_k(t.$1, t.$2)] = r.lowestSeq;
+          results[t] = r.items;
         }
       } catch (e) {
         errors.add('${account(t.$1)?.displayName ?? ''}: ${errText(e)}');
       }
     }));
+    var late = false;
+    await job.timeout(limit, onTimeout: () {
+      late = true;
+      return const [];
+    });
+    if (gen != _refreshGen) return; // inzwischen neuer Abruf/andere Ansicht
+    _applyRefresh(targets, results, lowest, errors);
+    loading = false;
+    notifyListeners();
+    if (late) {
+      // Server antwortet langsam: Ergebnis nachtragen, ohne die Ladeanzeige weiterlaufen zu lassen
+      unawaited(job.then((_) {
+        if (gen != _refreshGen) return;
+        _applyRefresh(targets, results, lowest, errors);
+        notifyListeners();
+      }).catchError((_) {}));
+    }
+  }
+
+  void _applyRefresh(List<(String, String)> targets, Map<(String, String), List<MailItem>> results,
+      Map<String, int> lowest, List<String> errors) {
+    final all = <MailItem>[];
+    for (final t in targets) {
+      final r = results[t];
+      if (r != null) {
+        all.addAll(r);
+      } else {
+        // Noch keine Antwort: bisherige Mails dieses Ordners stehen lassen
+        all.addAll(items.where((i) => i.accountId == t.$1 && i.folderPath == t.$2));
+      }
+    }
     all.sort(_byDate);
     items = all;
     // Inzwischen (z. B. auf einem anderen Gerät) gelesene Mails zählen nicht mehr als neu
     _dropNew(all.where((i) => i.seen));
-    for (final t in _targets()) {
-      _scheduleCounts(t.$1, delay: const Duration(milliseconds: 300));
+    for (final t in targets) {
+      if (results.containsKey(t)) _scheduleCounts(t.$1, delay: const Duration(milliseconds: 300));
     }
+    _lowest
+      ..clear()
+      ..addAll(lowest);
     hasMore = _lowest.values.any((v) => v > 1);
     error = errors.isEmpty ? null : errors.join('\n');
-    loading = false;
-    notifyListeners();
   }
 
   Future<void> loadMore() async {
@@ -448,7 +489,7 @@ class AppState extends ChangeNotifier {
 
   int unreadFor(String accountId, String path) => unread[accountId]?[path] ?? 0;
 
-  /// Zähler bei „Alle Posteingänge“: ungelesene Mails aller Ordner mit Push/Automatik.
+  /// Zähler bei „Aktuell“: ungelesene Mails aller Ordner mit Push/Automatik.
   int get totalInboxUnread => unifiedFolders.fold(0, (sum, f) => sum + unreadFor(f.$1, f.$2));
 
   Future<void> loadUnread(String accountId) async {
@@ -531,7 +572,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Beim Öffnen der App immer mit „Alle Posteingänge“ starten.
+  /// Beim Öffnen der App immer mit „Aktuell“ starten.
   void showUnifiedInbox() {
     if (unified && searchQuery == null && openItem == null) return;
     setView(null);
@@ -866,7 +907,7 @@ class AppState extends ChangeNotifier {
     await _markChanged();
     await _restartPush();
     if (fs.mode != SyncMode.manual) _scheduleCounts(accountId, delay: Duration.zero);
-    // Ordner kommt in „Alle Posteingänge“ hinzu bzw. fällt heraus
+    // Ordner kommt in „Aktuell“ hinzu bzw. fällt heraus
     if (unified && searchQuery == null && !loading) refresh();
   }
 
@@ -1158,6 +1199,9 @@ class AppState extends ChangeNotifier {
     }
     if (e is SocketException || l.contains('socketexception') || l.contains('failed host lookup')) {
       return 'Keine Verbindung zum Server – Internet, VPN/Werbeblocker und Serveradresse prüfen.\n\nTechnisch: ${_short(s)}';
+    }
+    if (e is TimeoutException) {
+      return 'Server antwortet nicht (Zeitüberschreitung) – später erneut versuchen.';
     }
     if (e is HandshakeException || l.contains('handshake')) {
       return 'Sichere Verbindung fehlgeschlagen – Port/Verschlüsselung prüfen.\n\nTechnisch: ${_short(s)}';

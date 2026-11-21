@@ -49,7 +49,7 @@ class FolderPane extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.all_inbox),
-            title: const Text('Alle Posteingänge'),
+            title: const Text('Aktuell'),
             trailing: UnreadBadge(count: s.totalInboxUnread, background: cs.primary, foreground: cs.onPrimary),
             selected: s.unified && s.searchQuery == null,
             onTap: () {

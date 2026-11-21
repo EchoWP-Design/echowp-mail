@@ -13,7 +13,7 @@ const keyboardShortcuts = <(String, List<(String, String)>)>[
   ]),
   ('Ordner & Ansicht', [
     ('Strg + G', 'Gehe zu Ordner (tippen zum Filtern)'),
-    ('Strg + 1', 'Alle Posteingänge'),
+    ('Strg + 1', 'Aktuell'),
     ('Strg + Umschalt + O', 'Sync-Einstellungen des aktuellen Ordners'),
     ('Umschalt + F10 / Menütaste', 'Kontextmenü des markierten Ordners'),
     ('Strg + E  oder  F3', 'Suchen'),

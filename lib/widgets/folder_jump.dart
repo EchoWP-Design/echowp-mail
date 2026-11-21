@@ -4,13 +4,13 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import 'common.dart';
 
-/// Ziel von „Gehe zu Ordner“: Konto + Pfad, oder `null`-Konto = Alle Posteingänge.
+/// Ziel von „Gehe zu Ordner“: Konto + Pfad, oder `null`-Konto = Aktuell.
 typedef FolderTarget = (String?, String);
 
 /// Strg+G: Ordner per Tastatur suchen und öffnen.
 Future<FolderTarget?> showFolderJump(BuildContext context, AppState s) {
   final entries = <(FolderTarget, String, String)>[
-    ((null, 'INBOX'), 'Alle Posteingänge', ''),
+    ((null, 'INBOX'), 'Aktuell', ''),
     for (final a in s.accounts)
       for (final f in sortFolders(s.folders[a.id] ?? const []))
         if (f.selectable) ((a.id, f.path), f.displayName, a.displayName),

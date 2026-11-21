@@ -112,7 +112,7 @@ void main() {
             w.textColor == Colors.white),
         findsOneWidget,
       );
-      // „Alle Posteingänge“ 3, Konto 3, Posteingang 3, Rechnungen 1
+      // „Aktuell“ 3, Konto 3, Posteingang 3, Rechnungen 1
       expect(find.text('3'), findsNWidgets(3));
       expect(find.text('1'), findsOneWidget);
       // Kein Zähler für „Gesendet“
@@ -323,7 +323,7 @@ void main() {
       expect(find.byKey(const ValueKey('new-badge')), findsNWidgets(3));
     });
 
-    test('Ordner öffnen setzt „neu“ zurück, Alle Posteingänge nicht', () async {
+    test('Ordner öffnen setzt „neu“ zurück, Aktuell nicht', () async {
       SharedPreferences.setMockInitialValues({});
       FlutterSecureStorage.setMockInitialValues({});
       final s = AppState()..accounts = [_acc()];
@@ -413,7 +413,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
     }
 
-    testWidgets('Handy: geöffnete Mail wird geschlossen, Start in „Alle Posteingänge“', (tester) async {
+    testWidgets('Handy: geöffnete Mail wird geschlossen, Start in „Aktuell“', (tester) async {
       tester.view.physicalSize = const Size(420, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -472,13 +472,13 @@ void main() {
       expect(await f, 42);
     });
 
-    test('Standard ist „Alle Posteingänge“', () {
+    test('Standard ist „Aktuell“', () {
       final s = AppState();
       expect(s.unified, isTrue);
-      expect(s.viewTitle, 'Alle Posteingänge');
+      expect(s.viewTitle, 'Aktuell');
     });
 
-    testWidgets('nach Rückkehr aus dem Hintergrund wieder „Alle Posteingänge“', (tester) async {
+    testWidgets('nach Rückkehr aus dem Hintergrund wieder „Aktuell“', (tester) async {
       SharedPreferences.setMockInitialValues({});
       FlutterSecureStorage.setMockInitialValues({});
       final old = HomeScreen.reopenAfter;
@@ -501,7 +501,7 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
       expect(s.unified, isTrue);
-      expect(find.text('Alle Posteingänge'), findsWidgets);
+      expect(find.text('Aktuell'), findsWidgets);
       await _drain(tester);
     });
   });
@@ -617,7 +617,7 @@ void main() {
     });
   });
 
-  group('Alle Posteingänge (nur ungelesene, synchronisierte Ordner)', () {
+  group('Aktuell (nur ungelesene, synchronisierte Ordner)', () {
     test('enthält nur Ordner mit Push oder Automatik', () {
       final a = _acc()
         ..folderSync['Rechnungen'] = const FolderSync(SyncMode.auto, true)
@@ -627,7 +627,7 @@ void main() {
       expect(s.unifiedFolders.length, 2);
       expect(s.inUnified('a1', 'Spam'), isFalse);
 
-      // Posteingang auf manuell → fällt aus „Alle Posteingänge“ heraus
+      // Posteingang auf manuell → fällt aus „Aktuell“ heraus
       a.folderSync['INBOX'] = const FolderSync(SyncMode.manual, false);
       expect(s.unifiedFolders, [('a1', 'Rechnungen')]);
     });
@@ -815,7 +815,7 @@ void main() {
       await tester.enterText(find.byKey(const ValueKey('folder-jump-filter')), 'rechn');
       await tester.pump();
       expect(find.text('Rechnungen'), findsWidgets, reason: 'Filter zeigt den Ordner');
-      expect(find.text('Alle Posteingänge'), findsWidgets);
+      expect(find.text('Aktuell'), findsWidgets);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
@@ -839,7 +839,7 @@ void main() {
   });
 
   group('Stern-Markierung', () {
-    test('Stern-Mails bleiben in „Alle Posteingänge“, auch gelesen', () {
+    test('Stern-Mails bleiben in „Aktuell“, auch gelesen', () {
       final read = _mail(1, seen: true);
       final starred = _mail(2, seen: true)..flagged = true;
       final unread = _mail(3);
@@ -1110,4 +1110,62 @@ void main() {
       await _drain(tester);
     });
   });
+
+  group('Abruf mit Zeitgrenze', () {
+    testWidgets('Ladeanzeige endet nach 5 s, späte Mails werden nachgetragen', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [_mail(1)];
+      s.mail.put('a1', _SlowConn(_acc(), const Duration(seconds: 8), [_mail(1), _mail(2)]));
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      final done = s.refresh();
+      await tester.pump(const Duration(seconds: 4));
+      expect(s.loading, isTrue);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(s.loading, isFalse, reason: 'spätestens nach 5 s Schluss');
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(s.items.map((i) => i.uid), [1], reason: 'bisherige Mails bleiben stehen');
+      await done;
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump();
+      expect(s.items.map((i) => i.uid).toSet(), {1, 2}, reason: 'späte Antwort wird nachgetragen');
+      expect(s.loading, isFalse);
+      await _drain(tester);
+    });
+
+    testWidgets('„Aktuell“: Mails mit Postfachfarbe hinterlegt', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [_mail(1)];
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      expect(find.text('Aktuell'), findsWidgets);
+      final tile = tester.widget<MailTile>(find.byType(MailTile));
+      expect(tile.tint, const Color(0xFF0288D1));
+      await _drain(tester);
+    });
+  });
+}
+
+/// Nachgebildeter, langsamer Server.
+class _SlowConn extends AccountConnection {
+  final Duration delay;
+  final List<MailItem> result;
+  _SlowConn(super.account, this.delay, this.result);
+
+  @override
+  Future<List<MailItem>> fetchUnseen(String path, {int limit = 150}) =>
+      Future.delayed(delay, () => path == 'INBOX' ? result : <MailItem>[]);
+
+  @override
+  Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
 }

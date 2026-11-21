@@ -24,7 +24,7 @@ import 'settings_screen.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  /// Ab dieser Zeit im Hintergrund gilt die Rückkehr als „App öffnen“ (→ Alle Posteingänge).
+  /// Ab dieser Zeit im Hintergrund gilt die Rückkehr als „App öffnen“ (→ Aktuell).
   static Duration reopenAfter = Duration.zero;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -41,7 +41,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const minListWidth = 280.0;
   static const minPreviewWidth = 360.0;
 
-  /// Wann die App in den Hintergrund ging (für „beim Öffnen: Alle Posteingänge“).
+  /// Wann die App in den Hintergrund ging (für „beim Öffnen: Aktuell“).
   DateTime? _backgroundSince;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -366,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final s = context.read<AppState>();
       final since = _backgroundSince;
       _backgroundSince = null;
-      // App wieder geöffnet → immer Startansicht „Alle Posteingänge“: offene Mails und Menüs schließen.
+      // App wieder geöffnet → immer Startansicht „Aktuell“: offene Mails und Menüs schließen.
       // Ausnahme: Bildschirme mit Eingaben (Mail schreiben, Konto, Drive) oder laufende Dateiauswahl/Browser.
       if (since != null && !s.keepView && DateTime.now().difference(since) >= HomeScreen.reopenAfter) {
         Navigator.of(context).popUntil((r) => r.isFirst);
@@ -688,6 +688,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         selected: s.selection.contains(item.key),
         opened: (wide && s.openItem?.key == item.key) || (!wide && s.cursor?.key == item.key),
         accountColor: s.unified && s.accounts.length > 1 && acc != null ? Color(acc.color) : null,
+        tint: s.unified && s.searchQuery == null && acc != null ? Color(acc.color) : null,
         onTap: () => selectionMode ? s.toggleSelect(item) : _open(s, item, wide),
         onLongPress: () => s.toggleSelect(item),
         onAvatarTap: () => s.toggleSelect(item),

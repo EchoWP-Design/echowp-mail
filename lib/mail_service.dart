@@ -7,7 +7,7 @@ import 'package:enough_mail/enough_mail.dart' as em;
 import 'models.dart';
 
 /// Serialisiert Zugriffe auf eine IMAP-Verbindung (IMAP kennt nur einen ausgewählten Ordner).
-/// Bleibt eine Mail in „Alle Posteingänge“? Ungelesen oder mit Stern.
+/// Bleibt eine Mail in „Aktuell“? Ungelesen oder mit Stern.
 bool keepInUnified(MailItem i) => !i.seen || i.flagged;
 
 class _Lock {
@@ -215,13 +215,21 @@ class AccountConnection {
         }
       });
 
+  /// Obergrenze für einen Serverbefehl: hängt eine Verbindung, wird sie getrennt,
+  /// damit nachfolgende Abrufe nicht endlos warten.
+  static const opTimeout = Duration(seconds: 60);
+
   Future<T> _run<T>(Future<T> Function(em.ImapClient c) fn) => _lock.run(() async {
+        Future<T> once() => (() async => fn(await _ensure()))().timeout(opTimeout);
         try {
-          return await fn(await _ensure());
+          return await once();
+        } on TimeoutException {
+          _reset();
+          rethrow;
         } catch (e) {
           // Verbindung neu aufbauen und einmal wiederholen (z. B. nach Server-Timeout)
           _reset();
-          return await fn(await _ensure());
+          return await once();
         }
       });
 
@@ -291,7 +299,7 @@ class AccountConnection {
         return PageResult(items, start);
       });
 
-  /// Nur ungelesene Mails eines Ordners (für „Alle Posteingänge“), neueste zuerst begrenzt.
+  /// Nur ungelesene Mails eines Ordners (für „Aktuell“), neueste zuerst begrenzt.
   /// Ungelesene und mit Stern markierte Mails (Stern-Mails bleiben auch gelesen sichtbar).
   Future<List<MailItem>> fetchUnseen(String path, {int limit = 150}) => _run((c) async {
         await _select(c, path, force: true);
@@ -421,6 +429,9 @@ class MailService {
   }
 
   void remove(String id) => _conns.remove(id)?.close();
+
+  /// Verbindung direkt setzen (nur für Tests mit nachgebildetem Server).
+  void put(String id, AccountConnection c) => _conns[id] = c;
 
   AccountConnection conn(String id) {
     final c = _conns[id];

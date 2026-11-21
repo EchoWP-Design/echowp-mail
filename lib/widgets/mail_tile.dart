@@ -8,6 +8,8 @@ class MailTile extends StatelessWidget {
   final bool selected;
   final bool opened;
   final Color? accountColor;
+  /// Hintergrundfarbe des Postfachs (Ansicht „Aktuell“), leicht hinterlegt.
+  final Color? tint;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback onAvatarTap;
@@ -19,6 +21,7 @@ class MailTile extends StatelessWidget {
     required this.selected,
     required this.opened,
     required this.accountColor,
+    this.tint,
     required this.onTap,
     required this.onLongPress,
     required this.onAvatarTap,
@@ -34,7 +37,9 @@ class MailTile extends StatelessWidget {
         ? cs.primaryContainer
         : opened
             ? cs.surfaceContainerHighest
-            : theme.scaffoldBackgroundColor;
+            : tint != null
+                ? accountTint(tint!, theme)
+                : theme.scaffoldBackgroundColor;
     return Material(
       color: bg,
       child: InkWell(
@@ -143,6 +148,10 @@ class StarButton extends StatelessWidget {
     );
   }
 }
+
+/// Postfachfarbe dezent über den Hintergrund gelegt (Text bleibt gut lesbar).
+Color accountTint(Color c, ThemeData theme) => Color.alphaBlend(
+    c.withValues(alpha: theme.brightness == Brightness.dark ? 0.22 : 0.14), theme.scaffoldBackgroundColor);
 
 class SwipeBackground extends StatelessWidget {
   final SwipeAction action;
