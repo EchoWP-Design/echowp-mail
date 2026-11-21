@@ -13,6 +13,13 @@ class AccountEditScreen extends StatefulWidget {
 }
 
 class _AccountEditScreenState extends State<AccountEditScreen> {
+  @override
+  void dispose() {
+    _viewHold.releaseView();
+    super.dispose();
+  }
+
+  late final AppState _viewHold;
   late EchoAccount _a;
   late ProviderPreset _preset;
   final _form = GlobalKey<FormState>();
@@ -26,6 +33,7 @@ class _AccountEditScreenState extends State<AccountEditScreen> {
   @override
   void initState() {
     super.initState();
+    _viewHold = context.read<AppState>()..holdView();
     final s = context.read<AppState>();
     _a = widget.account?.copy() ??
         EchoAccount(color: accountColors[s.accounts.length % accountColors.length]);

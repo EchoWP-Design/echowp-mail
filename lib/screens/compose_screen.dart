@@ -26,6 +26,7 @@ class ComposeScreen extends StatefulWidget {
 }
 
 class _ComposeScreenState extends State<ComposeScreen> {
+  late final AppState _viewHold;
   final _to = TextEditingController();
   final _cc = TextEditingController();
   final _bcc = TextEditingController();
@@ -39,6 +40,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void initState() {
     super.initState();
+    _viewHold = context.read<AppState>()..holdView();
     final s = context.read<AppState>();
     final o = widget.original;
     _accountId = o?.item.accountId ?? widget.accountId ?? s.accounts.first.id;
@@ -96,6 +98,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   @override
   void dispose() {
+    _viewHold.releaseView();
     for (final c in [_to, _cc, _bcc, _subject, _body]) {
       c.dispose();
     }

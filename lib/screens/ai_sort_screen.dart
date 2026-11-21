@@ -15,6 +15,19 @@ class AiSortScreen extends StatefulWidget {
 }
 
 class _AiSortScreenState extends State<AiSortScreen> {
+  @override
+  void dispose() {
+    _viewHold.releaseView();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _viewHold = context.read<AppState>()..holdView();
+  }
+
+  late final AppState _viewHold;
   static const _max = 40;
   Map<String, String?>? _suggestions;
   final Set<String> _checked = {};

@@ -19,7 +19,7 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   /// Ab dieser Zeit im Hintergrund gilt die Rückkehr als „App öffnen“ (→ Alle Posteingänge).
-  static Duration reopenAfter = const Duration(seconds: 30);
+  static Duration reopenAfter = Duration.zero;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -37,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Wann die App in den Hintergrund ging (für „beim Öffnen: Alle Posteingänge“).
   DateTime? _backgroundSince;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   late final AppState _state;
 
   @override
@@ -119,17 +120,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final s = context.read<AppState>();
       final since = _backgroundSince;
       _backgroundSince = null;
-      // App wieder geöffnet (nicht nur kurz gewechselt) → Startansicht „Alle Posteingänge“,
-      // sofern gerade nichts anderes (Mail, Antwort) im Vordergrund offen ist.
-      final onHome = ModalRoute.of(context)?.isCurrent ?? true;
-      if (since != null && onHome && DateTime.now().difference(since) >= HomeScreen.reopenAfter) {
+      // App wieder geöffnet → immer Startansicht „Alle Posteingänge“: offene Mails und Menüs schließen.
+      // Ausnahme: Bildschirme mit Eingaben (Mail schreiben, Konto, Drive) oder laufende Dateiauswahl/Browser.
+      if (since != null && !s.keepView && DateTime.now().difference(since) >= HomeScreen.reopenAfter) {
+        Navigator.of(context).popUntil((r) => r.isFirst);
+        _scaffoldKey.currentState?.closeDrawer();
+        if (_searchOpen) {
+          setState(() => _searchOpen = false);
+          _searchCtrl.clear();
+        }
         s.showUnifiedInbox();
       }
       s.poll();
     }
   }
-
-
 
   void _open(AppState s, MailItem item, bool wide) {
     if (wide) {
@@ -181,6 +185,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     return Scaffold(
+      key: _scaffoldKey,
       appBar: s.selection.isNotEmpty ? _selectionBar(s) : _normalBar(s),
       drawer: threePane ? null : const Drawer(child: FolderPane(inDrawer: true)),
       body: body,

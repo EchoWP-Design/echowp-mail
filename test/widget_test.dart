@@ -6,7 +6,9 @@ import 'package:echowp_mail/mail_service.dart';
 import 'package:echowp_mail/models.dart';
 import 'package:echowp_mail/new_mail.dart';
 import 'package:echowp_mail/notifications.dart';
+import 'package:echowp_mail/screens/compose_screen.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
+import 'package:echowp_mail/screens/message_screen.dart';
 import 'package:echowp_mail/theme.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
@@ -146,6 +148,12 @@ void main() {
       expect(s.selection, isEmpty);
       expect(s.unreadFor('a1', 'INBOX'), 1);
       expect(find.text('1 Nachricht gelöscht'), findsOneWidget);
+      // Hinweis „Rückgängig“ verschwindet nach ca. 4 Sekunden von selbst
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(find.text('1 Nachricht gelöscht'), findsNothing);
+      expect(find.text('Rückgängig'), findsNothing);
       await _drain(tester);
     });
 
@@ -384,6 +392,79 @@ void main() {
   });
 
   group('Startansicht', () {
+    Future<void> backgroundAndReturn(WidgetTester tester) async {
+      for (final st in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(st);
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    testWidgets('Handy: geöffnete Mail wird geschlossen, Start in „Alle Posteingänge“', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final m1 = _mail(1, seen: true);
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      s.setView('a1', 'Rechnungen');
+      s.items = [m1];
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      await tester.tap(find.text('Betreff 1'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(MessageScreen), findsOneWidget);
+
+      await backgroundAndReturn(tester);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(MessageScreen), findsNothing);
+      expect(s.unified, isTrue);
+      await _drain(tester);
+    });
+
+    testWidgets('beim Schreiben einer Mail bleibt alles, wie es ist', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      s.setView('a1', 'Rechnungen');
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Neue E-Mail'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(s.keepView, isTrue);
+
+      await backgroundAndReturn(tester);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(s.unified, isFalse);
+      await _drain(tester);
+    });
+
+    test('Dateiauswahl/Browser halten die Ansicht nur vorübergehend', () async {
+      final s = AppState();
+      expect(s.keepView, isFalse);
+      final f = s.whileAway(() async => 42);
+      expect(s.keepView, isTrue);
+      expect(await f, 42);
+    });
+
     test('Standard ist „Alle Posteingänge“', () {
       final s = AppState();
       expect(s.unified, isTrue);

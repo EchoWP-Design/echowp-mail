@@ -14,6 +14,13 @@ class DriveSyncScreen extends StatefulWidget {
 }
 
 class _DriveSyncScreenState extends State<DriveSyncScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _viewHold = context.read<AppState>()..holdView();
+  }
+
+  late final AppState _viewHold;
   final _clientId = TextEditingController();
   final _secret = TextEditingController();
   final _pw = TextEditingController();
@@ -25,6 +32,7 @@ class _DriveSyncScreenState extends State<DriveSyncScreen> {
 
   @override
   void dispose() {
+    _viewHold.releaseView();
     _cancel = true;
     for (final c in [_clientId, _secret, _pw, _pw2]) {
       c.dispose();

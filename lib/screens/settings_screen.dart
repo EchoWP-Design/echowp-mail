@@ -201,7 +201,7 @@ class SettingsScreen extends StatelessWidget {
         header('Über'),
         const ListTile(
           leading: Icon(Icons.info_outline),
-          title: Text('EchoWP-Mail 3.1'),
+          title: Text('EchoWP-Mail 3.1.1'),
           subtitle: Text('Eigener Mail-Client für Android und Windows'),
         ),
         const SizedBox(height: 32),
@@ -226,11 +226,11 @@ class SettingsScreen extends StatelessWidget {
     try {
       final bytes = await withProgress(context, 'Verschlüssele …', () => s.exportBackup(pw));
       if (bytes == null) return;
-      final path = await FilePicker.platform.saveFile(
+      final path = await s.whileAway(() => FilePicker.platform.saveFile(
         dialogTitle: 'Sicherung speichern',
         fileName: 'echowp-mail-sicherung.ewpm',
         bytes: bytes,
-      );
+      ));
       if (path == null) return;
       if (!Platform.isAndroid && !Platform.isIOS) await File(path).writeAsBytes(bytes);
       s.toast('Sicherung gespeichert');
@@ -240,7 +240,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _import(BuildContext context, AppState s) async {
-    final res = await FilePicker.platform.pickFiles(withData: true, dialogTitle: 'Sicherung auswählen');
+    final res = await s.whileAway(() => FilePicker.platform.pickFiles(withData: true, dialogTitle: 'Sicherung auswählen'));
     final bytes = res?.files.single.bytes;
     if (bytes == null || !context.mounted) return;
     final pw = await promptText(context, 'Passwort der Sicherung', 'Passwort', obscure: true);

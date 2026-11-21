@@ -324,7 +324,7 @@ class AppState extends ChangeNotifier {
     final n = removed.length;
     final m = messengerKey.currentState;
     m?.hideCurrentSnackBar();
-    m?.showSnackBar(SnackBar(
+    final ctrl = m?.showSnackBar(SnackBar(
       content: Text('$n ${n == 1 ? 'Nachricht' : 'Nachrichten'} $label'),
       duration: const Duration(seconds: 4),
       action: SnackBarAction(
@@ -341,6 +341,14 @@ class AppState extends ChangeNotifier {
         },
       ),
     ));
+    // Hinweise mit Knopf blendet Android (neuere Flutter-Versionen) nicht selbst aus → nach 4 s schließen
+    _undoSnack = ctrl;
+    Timer(const Duration(seconds: 4), () {
+      if (_undoSnack != null && identical(_undoSnack, ctrl)) {
+        _undoSnack = null;
+        messengerKey.currentState?.hideCurrentSnackBar();
+      }
+    });
     Future.delayed(const Duration(milliseconds: 4500), () async {
       if (undone) return;
       try {
@@ -508,6 +516,9 @@ class AppState extends ChangeNotifier {
   Future<void> Function(MailItem item, {required bool reply})? openMail;
 
   Future<void> handleNotification(NotificationResponse r) async {
+    // Antippen einer Benachrichtigung öffnet gezielt eine Mail → nicht zur Startansicht springen
+    holdView();
+    Future.delayed(const Duration(seconds: 3), releaseView);
     final p = NotifyPayload.decode(r.payload);
     if (r.actionId == NotifyAction.read || r.actionId == NotifyAction.delete) {
       // bereits auf dem Server erledigt – Anzeige auffrischen
@@ -968,7 +979,31 @@ class AppState extends ChangeNotifier {
 
   // ---------------------------------------------------------------- Hilfen
 
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _undoSnack;
+
+  // ---------------------------------------------------------------- Startansicht schützen
+
+  int _keepView = 0;
+
+  /// true, solange ein Bildschirm mit Eingaben (Mail schreiben, Konto, Drive, KI-Sortierung) offen ist
+  /// oder ein externer Vorgang läuft (Dateiauswahl, Browser) – dann springt die App beim Zurückkehren
+  /// nicht zur Startansicht.
+  bool get keepView => _keepView > 0;
+  void holdView() => _keepView++;
+  void releaseView() => _keepView = max(0, _keepView - 1);
+
+  /// Für Dateiauswahl, Browser usw.: hält die Ansicht, bis der Vorgang beendet ist (+3 s Puffer).
+  Future<T> whileAway<T>(Future<T> Function() task) async {
+    holdView();
+    try {
+      return await task();
+    } finally {
+      Future.delayed(const Duration(seconds: 3), releaseView);
+    }
+  }
+
   void toast(String text) {
+    _undoSnack = null;
     messengerKey.currentState
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text)));

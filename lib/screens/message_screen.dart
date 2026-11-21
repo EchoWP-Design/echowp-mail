@@ -84,7 +84,7 @@ class _MessageViewState extends State<MessageView> {
     );
     if (ok == true) {
       try {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        await s.whileAway(() => launchUrl(uri, mode: LaunchMode.externalApplication));
       } catch (_) {}
     }
     return true;
@@ -173,11 +173,11 @@ class _MessageViewState extends State<MessageView> {
       return;
     }
     try {
-      final path = await FilePicker.platform.saveFile(
+      final path = await s.whileAway(() => FilePicker.platform.saveFile(
         dialogTitle: 'Anhang speichern',
         fileName: a.name,
         bytes: bytes,
-      );
+      ));
       if (path == null) return;
       if (!Platform.isAndroid && !Platform.isIOS) {
         await File(path).writeAsBytes(bytes);
