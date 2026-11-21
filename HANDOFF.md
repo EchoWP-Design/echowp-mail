@@ -11,12 +11,12 @@ EchoWP-Mail nach Jans Wünschen erweitert: Tastatursteuerung (v3.3), Stern-Marki
 - v3.5.1 Esc schließt nur die Adressvorschläge (`EscGuard` in `lib/keyboard.dart`) – ae10263
 - v3.6 Abruf: Ladeanzeige max. 5 s (`refresh(limit:)`, `_refreshGen`, späte Antworten via `_applyRefresh` nachgetragen); IMAP-Befehle max. 60 s (`opTimeout` in `_run`, danach Verbindung neu); „Alle Posteingänge“ → „Aktuell“; Mails in „Aktuell“ mit Postfachfarbe hinterlegt (`MailTile.tint`, `accountTint`) – e96e4da
 - v4.0 nur Versionssprung – cc895bc, Release v4.0.0-build-32
-- Releases v3.4.0-build-28 und v3.5.0-build-29; Projektakte `claude/echowp-mail-ueberblick.md` auf v3.5 aktualisiert
+- Releases v3.4.0-build-28 und v3.5.0-build-29; Projektakte `claude/echowp-mail-ueberblick.md` auf v4.0 aktualisiert
 
 ## Offen / nächster Schritt
 1. Jans Rückmeldung zu v4.0: endet der manuelle Abruf jetzt? (Ursache des Dauerdrehens nicht sicher bekannt – vermutlich hängende IMAP-Verbindung; jetzt 5-s-Anzeige + 60-s-Abbruch)
 2. Jans Rückmeldung zu v3.5 abwarten (Vorschläge beim Tippen, Absender-Knopf, Kontaktfelder) und zu v3.4 (Drag & Drop in der EXE wirklich getestet? Stern-Farbe)
-2. Auf Wunsch: Kontakt-Import/-Export (vCard/CSV aus web.de/Gmail)
+3. Auf Wunsch: Kontakt-Import/-Export (vCard/CSV aus web.de/Gmail)
 4. Weitere Ideen: Projektakte, Abschnitt „Offen / Ideen“ – nur auf Jans Wunsch
 
 ## Entscheidungen
