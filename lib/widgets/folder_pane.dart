@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../screens/account_edit_screen.dart';
+import '../screens/contacts_screen.dart';
 import '../screens/settings_screen.dart';
 import 'common.dart';
 import 'folder_sync_sheet.dart';
@@ -60,6 +61,11 @@ class FolderPane extends StatelessWidget {
           for (final acc in s.accounts) _AccountBlock(acc: acc, onDone: done, onPush: push),
           const SizedBox(height: 4),
           const Divider(),
+          ListTile(
+            leading: const Icon(Icons.contacts_outlined),
+            title: const Text('Adressbuch'),
+            onTap: () => push(const AddressBookScreen()),
+          ),
           ListTile(
             leading: const Icon(Icons.person_add),
             title: const Text('Konto hinzufügen'),

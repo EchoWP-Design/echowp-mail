@@ -17,6 +17,7 @@ import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
 import 'ai_sort_screen.dart';
 import 'compose_screen.dart';
+import 'contacts_screen.dart';
 import 'message_screen.dart';
 import 'settings_screen.dart';
 
@@ -200,6 +201,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (k == LogicalKeyboardKey.keyQ && !shift) return _mark(s, true);
       if (k == LogicalKeyboardKey.keyU && !shift) return _mark(s, false);
       if (k == LogicalKeyboardKey.keyO && shift) return _folderSettings(s);
+      if (k == LogicalKeyboardKey.keyB && shift) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const AddressBookScreen()));
+        return true;
+      }
       if (k == LogicalKeyboardKey.keyV && shift) {
         _moveTargets(s);
         return true;

@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../file_drop.dart';
 import '../mail_service.dart';
+import '../widgets/address_field.dart';
 import '../widgets/common.dart';
 
 enum ComposeMode { newMail, reply, replyAll, forward }
@@ -292,33 +293,21 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 onChanged: (v) => setState(() => _accountId = v ?? _accountId),
               ),
               const Divider(),
-              TextField(
+              AddressField(
                 controller: _to,
+                label: 'An',
                 autofocus: widget.mode == ComposeMode.newMail && _to.text.isEmpty,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'An',
-                  border: InputBorder.none,
-                  suffixIcon: IconButton(
-                    tooltip: 'Cc/Bcc',
-                    icon: Icon(_showCc ? Icons.expand_less : Icons.expand_more),
-                    onPressed: () => setState(() => _showCc = !_showCc),
-                  ),
+                suffixIcon: IconButton(
+                  tooltip: 'Cc/Bcc',
+                  icon: Icon(_showCc ? Icons.expand_less : Icons.expand_more),
+                  onPressed: () => setState(() => _showCc = !_showCc),
                 ),
               ),
               if (_showCc) ...[
                 const Divider(),
-                TextField(
-                  controller: _cc,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Cc', border: InputBorder.none),
-                ),
+                AddressField(controller: _cc, label: 'Cc'),
                 const Divider(),
-                TextField(
-                  controller: _bcc,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(labelText: 'Bcc', border: InputBorder.none),
-                ),
+                AddressField(controller: _bcc, label: 'Bcc'),
               ],
               const Divider(),
               TextField(

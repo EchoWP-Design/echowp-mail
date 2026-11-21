@@ -19,6 +19,7 @@ import 'new_mail.dart';
 import 'notifications.dart';
 import 'push.dart';
 import 'storage.dart';
+import 'contacts.dart';
 
 int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
 
@@ -59,12 +60,15 @@ class AppState extends ChangeNotifier {
   /// Neu eingetroffene (noch nicht angesehene) Mails: Konto → Ordnerpfad → UIDs
   final Map<String, Map<String, Set<int>>> newMail = {};
   final drive = DriveSync();
+  /// Adressbuch und Gedächtnis bereits verwendeter Adressen.
+  final book = AddressBook();
 
   // ---------------------------------------------------------------- Laden
 
   Future<void> load() async {
     accounts = await _storage.loadAccounts();
     settings = await _storage.loadSettings();
+    await book.load();
     await drive.load();
     await reloadNew();
     for (final a in accounts) {
@@ -670,6 +674,12 @@ class AppState extends ChangeNotifier {
       references: replyTo?.references,
     );
     await mail.send(acc, msg);
+    // Gedächtnis: Empfänger für spätere Vorschläge merken
+    book.remember([
+      for (final a in [...toList, ...parseAddresses(cc), ...parseAddresses(bcc)]) (a.personalName ?? '', a.email)
+    ]);
+    await book.save();
+    unawaited(_markChanged());
     // Gmail legt gesendete Mails selbst ab, andere Anbieter nicht
     if (!acc.isGmail) {
       try {
@@ -683,6 +693,41 @@ class AppState extends ChangeNotifier {
             .setFlag(replyTo.item.folderPath, [replyTo.item.uid], em.MessageFlags.answered, true);
       } catch (_) {}
     }
+  }
+
+  // ---------------------------------------------------------------- Adressbuch
+
+  Future<void> saveContact(Contact c) async {
+    c.emails = c.emails.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    final i = book.contacts.indexWhere((x) => x.id == c.id);
+    if (i >= 0) {
+      book.contacts[i] = c;
+    } else {
+      book.contacts.add(c);
+    }
+    book.sort();
+    notifyListeners();
+    await book.save();
+    await _markChanged();
+  }
+
+  Future<void> deleteContact(String id) async {
+    book.contacts.removeWhere((c) => c.id == id);
+    notifyListeners();
+    await book.save();
+    await _markChanged();
+  }
+
+  /// Gedächtnis löschen (eine Adresse oder alle).
+  Future<void> forgetAddresses([String? email]) async {
+    if (email == null) {
+      book.recent.clear();
+    } else {
+      book.recent.remove(email.toLowerCase());
+    }
+    notifyListeners();
+    await book.save();
+    await _markChanged();
   }
 
   // ---------------------------------------------------------------- KI
@@ -881,6 +926,7 @@ class AppState extends ChangeNotifier {
         'accounts': accounts.map((a) => a.toJson()).toList(),
         'settings': settings.toJson(),
         'aiKey': settings.aiKey,
+        ...book.toPayload(),
       };
 
   Future<Uint8List> exportBackup(String password) async =>
@@ -906,6 +952,8 @@ class AppState extends ChangeNotifier {
     settings = s;
     await _storage.saveAccounts(accounts);
     await _storage.saveSettings(settings);
+    book.applyPayload(p);
+    await book.save();
     folders.clear();
     unread.clear();
     for (final a in accounts) {

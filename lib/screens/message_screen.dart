@@ -13,6 +13,7 @@ import '../models.dart';
 import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
 import 'compose_screen.dart';
+import 'contacts_screen.dart';
 
 class MessageScreen extends StatelessWidget {
   final MailItem item;
@@ -367,6 +368,16 @@ class _MessageViewState extends State<MessageView> {
                 Text(formatFullDate(item.date), style: theme.textTheme.bodySmall),
               ]),
             ),
+            if (item.fromEmail.contains('@'))
+              Builder(builder: (context) {
+                final known = s.book.byEmail(item.fromEmail) != null;
+                return IconButton(
+                  key: const ValueKey('sender-to-book'),
+                  tooltip: known ? 'Im Adressbuch öffnen' : 'Absender zum Adressbuch',
+                  icon: Icon(known ? Icons.contact_page_outlined : Icons.person_add_alt_1),
+                  onPressed: () => addSenderToBook(context, item.fromName, item.fromEmail),
+                );
+              }),
           ]),
           if (d.attachments.isNotEmpty) ...[
             const SizedBox(height: 12),

@@ -18,6 +18,7 @@ const keyboardShortcuts = <(String, List<(String, String)>)>[
     ('Umschalt + F10 / Menütaste', 'Kontextmenü des markierten Ordners'),
     ('Strg + E  oder  F3', 'Suchen'),
     ('F5', 'Aktualisieren'),
+    ('Strg + Umschalt + B', 'Adressbuch (darin Strg + N = neuer Kontakt, Strg + S = speichern)'),
     ('Strg + ,', 'Einstellungen'),
     ('F1', 'Diese Übersicht'),
   ]),
@@ -39,6 +40,7 @@ const keyboardShortcuts = <(String, List<(String, String)>)>[
   ('Mail schreiben', [
     ('Strg + N', 'Neue Mail'),
     ('Strg + Eingabe', 'Senden'),
+    ('↓ / ↑ + Eingabe', 'Adressvorschlag im Feld An/Cc/Bcc übernehmen'),
     ('Strg + Umschalt + A', 'Anhang hinzufügen (oder Dateien ins Fenster ziehen)'),
     ('Strg + Umschalt + K', 'Text mit KI überarbeiten'),
     ('Esc', 'Schließen (fragt bei Inhalt nach)'),

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:echowp_mail/app_state.dart';
 import 'package:echowp_mail/background.dart';
+import 'package:echowp_mail/contacts.dart';
 import 'package:echowp_mail/file_drop.dart';
 import 'package:echowp_mail/keyboard.dart';
 import 'package:echowp_mail/mail_service.dart';
@@ -9,9 +10,11 @@ import 'package:echowp_mail/models.dart';
 import 'package:echowp_mail/new_mail.dart';
 import 'package:echowp_mail/notifications.dart';
 import 'package:echowp_mail/screens/compose_screen.dart';
+import 'package:echowp_mail/screens/contacts_screen.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
 import 'package:echowp_mail/screens/message_screen.dart';
 import 'package:echowp_mail/theme.dart';
+import 'package:echowp_mail/widgets/address_field.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
 import 'package:echowp_mail/widgets/mail_tile.dart';
@@ -942,6 +945,128 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(find.byType(ComposeScreen), findsOneWidget);
       expect(find.widgetWithText(InputChip, 'vertrag.docx'), findsOneWidget);
+      await _drain(tester);
+    });
+  });
+
+  group('Adressbuch und Gedächtnis', () {
+    test('Vorschläge: Adressbuch zuerst, dann häufig verwendete', () {
+      final b = AddressBook()
+        ..contacts = [Contact(name: 'Martina Kühn', emails: ['martina@example.de'])];
+      b.remember([('Max Muster', 'max@example.de')]);
+      b.remember([('', 'mara@example.de'), ('Max Muster', 'max@example.de')]);
+      final s = b.suggest('ma');
+      expect(s.map((x) => x.email).toList(), ['martina@example.de', 'max@example.de', 'mara@example.de']);
+      expect(s.first.fromContacts, isTrue);
+      expect(b.suggest('kühn').single.email, 'martina@example.de', reason: 'Nachname passt auch');
+      expect(b.suggest('ma', exclude: {'MAX@example.de'}).length, 2);
+      expect(b.suggest(''), isEmpty);
+      expect(b.recentNotInBook().map((r) => r.email), containsAll(['max@example.de', 'mara@example.de']));
+    });
+
+    test('Abgleich-Daten enthalten Adressbuch und Gedächtnis', () {
+      final a = AddressBook()..contacts = [Contact(name: 'A', emails: ['a@example.de'], phone: '123')];
+      a.remember([('B', 'b@example.de')]);
+      final b = AddressBook()..applyPayload(a.toPayload());
+      expect(b.contacts.single.phone, '123');
+      expect(b.recent.keys, ['b@example.de']);
+      // Ältere Abgleich-Daten ohne Adressbuch löschen nichts
+      b.applyPayload({'accounts': []});
+      expect(b.contacts.length, 1);
+    });
+
+    test('Vorschlag ersetzt nur die gerade getippte Adresse', () {
+      expect(AddressField.currentToken('a@b.de, ma'), 'ma');
+      const s = AddressSuggestion('Max Muster', 'max@example.de');
+      expect(AddressField.applySuggestion('ma', s), 'Max Muster <max@example.de>, ');
+      expect(AddressField.applySuggestion('a@b.de, ma', s), 'a@b.de, Max Muster <max@example.de>, ');
+      expect(const AddressSuggestion('Kühn, Martina', 'k@example.de').formatted, 'Kühn Martina <k@example.de>');
+    });
+
+    testWidgets('Schreiben: Tippen zeigt Vorschlag, Antippen übernimmt ihn', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.book.remember([('Max Muster', 'max@example.de')]);
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      await tester.enterText(find.widgetWithText(TextField, 'An'), 'mus');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('suggest-max@example.de')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('suggest-max@example.de')));
+      await tester.pump();
+      final to = tester.widget<TextField>(find.widgetWithText(TextField, 'An')).controller!.text;
+      expect(to, 'Max Muster <max@example.de>, ');
+      expect(find.byKey(const ValueKey('suggest-max@example.de')), findsNothing);
+      await _drain(tester);
+    });
+
+    testWidgets('Absender zum Adressbuch: Eintrag angelegt, Adresse übernommen, bearbeitbar', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      await tester.pumpWidget(_wrap(
+          s,
+          Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => addSenderToBook(context, 'Anna Beispiel', 'anna@example.de'),
+                child: const Text('Zum Adressbuch'),
+              ),
+            ),
+          )));
+      await tester.tap(find.text('Zum Adressbuch'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ContactEditScreen), findsOneWidget);
+      expect(s.book.byEmail('anna@example.de')?.name, 'Anna Beispiel');
+      expect(find.text('Kontakt bearbeiten'), findsOneWidget);
+      final email = tester.widget<TextField>(find.byKey(const ValueKey('contact-email-0'))).controller!.text;
+      expect(email, 'anna@example.de');
+
+      await tester.enterText(find.widgetWithText(TextField, 'Telefon'), '07041 12345');
+      await tester.enterText(find.widgetWithText(TextField, 'Firma / Dienststelle'), 'EchoWP');
+      await tester.tap(find.byKey(const ValueKey('contact-save')));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ContactEditScreen), findsNothing);
+      final c = s.book.byEmail('anna@example.de')!;
+      expect(c.phone, '07041 12345');
+      expect(c.company, 'EchoWP');
+      expect(s.book.contacts.length, 1, reason: 'kein doppelter Eintrag');
+
+      // Zweiter Klick: kein neuer Eintrag, vorhandener wird geöffnet
+      await tester.tap(find.text('Zum Adressbuch'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(s.book.contacts.length, 1);
+      expect(tester.widget<TextField>(find.widgetWithText(TextField, 'Telefon')).controller!.text, '07041 12345');
+      await _drain(tester);
+    });
+
+    testWidgets('Adressbuch: Liste, Suche, ungültige Adresse wird abgelehnt', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.book.contacts = [Contact(name: 'Zora', emails: ['z@example.de']), Contact(name: 'Bernd', emails: ['b@example.de'])];
+      s.book.sort();
+      await tester.pumpWidget(_wrap(s, const AddressBookScreen()));
+      await tester.pump();
+      expect(find.text('Bernd'), findsOneWidget);
+      expect(find.text('Zora'), findsOneWidget);
+      await tester.enterText(find.byKey(const ValueKey('contact-search')), 'zo');
+      await tester.pump();
+      expect(find.text('Bernd'), findsNothing);
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Neuer Kontakt'), findsOneWidget);
+      await tester.enterText(find.byKey(const ValueKey('contact-email-0')), 'kein-at-zeichen');
+      await tester.tap(find.byKey(const ValueKey('contact-save')));
+      await tester.pump();
+      expect(find.text('Ungültige E-Mail-Adresse: kein-at-zeichen'), findsOneWidget);
+      expect(find.byType(ContactEditScreen), findsOneWidget);
       await _drain(tester);
     });
   });
