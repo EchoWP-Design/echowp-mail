@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
@@ -94,6 +95,34 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
     _body.text = buf.toString();
     _body.selection = TextSelection.collapsed(offset: (widget.initialText ?? '').length);
+    _initial = _snapshot();
+  }
+
+  // ---------------------------------------------------------------- Tastatur & Schließen
+
+  late final String _initial;
+  String _snapshot() =>
+      [_accountId, _to.text, _cc.text, _bcc.text, _subject.text, _body.text, _attachments.length].join('\u0000');
+  bool get _dirty => _snapshot() != _initial;
+
+  /// Zurück (Esc, Alt+←, Android-Zurück): bei Inhalt erst nachfragen.
+  Future<void> _confirmClose() async {
+    if (!_dirty) {
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Entwurf verwerfen?'),
+        content: const Text('Die Mail wurde noch nicht gesendet.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Verwerfen')),
+          FilledButton(autofocus: true, onPressed: () => Navigator.pop(ctx, false), child: const Text('Weiter schreiben')),
+        ],
+      ),
+    );
+    if (discard == true && mounted) Navigator.pop(context);
   }
 
   @override
@@ -185,7 +214,27 @@ class _ComposeScreenState extends State<ComposeScreen> {
       ComposeMode.replyAll => 'Allen antworten',
       ComposeMode.forward => 'Weiterleiten',
     };
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmClose();
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+            if (!_busy) _send();
+          },
+          const SingleActivator(LogicalKeyboardKey.numpadEnter, control: true): () {
+            if (!_busy) _send();
+          },
+          const SingleActivator(LogicalKeyboardKey.keyA, control: true, shift: true): () {
+            if (!_busy) _attach();
+          },
+          const SingleActivator(LogicalKeyboardKey.keyK, control: true, shift: true): () {
+            if (!_busy) _polish();
+          },
+        },
+        child: Scaffold(
       appBar: AppBar(
         title: Text(title),
         actions: [
@@ -219,6 +268,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
               const Divider(),
               TextField(
                 controller: _to,
+                autofocus: widget.mode == ComposeMode.newMail && _to.text.isEmpty,
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   labelText: 'An',
@@ -276,6 +326,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ),
         ),
       ]),
+    ),
+      ),
     );
   }
 }

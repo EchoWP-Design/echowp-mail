@@ -8,12 +8,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../widgets/common.dart';
+import '../widgets/folder_jump.dart';
 import '../widgets/folder_pane.dart';
+import '../widgets/folder_sync_sheet.dart';
 import '../widgets/mail_tile.dart';
+import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
 import 'ai_sort_screen.dart';
 import 'compose_screen.dart';
 import 'message_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -104,12 +108,210 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  /// Entf-Taste (PC): Auswahl bzw. geöffnete Mail löschen – nicht in Textfeldern oder Dialogen.
+  // ---------------------------------------------------------------- Tastatursteuerung (v. a. Windows)
+
+  static const _navKeys = {
+    LogicalKeyboardKey.arrowDown,
+    LogicalKeyboardKey.arrowUp,
+    LogicalKeyboardKey.keyJ,
+    LogicalKeyboardKey.keyK,
+    LogicalKeyboardKey.home,
+    LogicalKeyboardKey.end,
+    LogicalKeyboardKey.enter,
+    LogicalKeyboardKey.numpadEnter,
+    LogicalKeyboardKey.space,
+  };
+
+  /// true, wenn kein Bedienelement gezielt den Fokus hat (dann gehören Pfeile/Eingabe/Leertaste der Liste).
+  static bool _listOwnsKeys() {
+    final f = FocusManager.instance.primaryFocus;
+    return f == null || f is FocusScopeNode;
+  }
+
   bool _onKey(KeyEvent e) {
-    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.delete) return false;
+    if (e is! KeyDownEvent && e is! KeyRepeatEvent) return false;
     if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false)) return false;
-    if (textFieldHasFocus()) return false;
-    return context.read<AppState>().deleteFromKeyboard();
+    final s = context.read<AppState>();
+    final k = e.logicalKey;
+    final hw = HardwareKeyboard.instance;
+    final ctrl = hw.isControlPressed;
+    final shift = hw.isShiftPressed;
+    final wide = MediaQuery.sizeOf(context).width >= 800;
+
+    if (k == LogicalKeyboardKey.escape) return e is KeyDownEvent && _escape(s, wide);
+    if (textFieldHasFocus() || hw.isAltPressed) return false; // Alt-Kürzel gehören der geöffneten Mail
+    if (e is KeyRepeatEvent && !_navKeys.contains(k)) return false;
+    if (_navKeys.contains(k) && !ctrl && !_listOwnsKeys()) return false; // fokussierter Knopf hat Vorrang
+
+    if (ctrl) {
+      if (k == LogicalKeyboardKey.keyN && !shift) return _newMail(s);
+      if (k == LogicalKeyboardKey.keyA && !shift) {
+        s.selectAll();
+        return true;
+      }
+      if (k == LogicalKeyboardKey.keyE && !shift) return _openSearch();
+      if (k == LogicalKeyboardKey.keyG && !shift) {
+        _jumpToFolder(s);
+        return true;
+      }
+      if (k == LogicalKeyboardKey.digit1 || k == LogicalKeyboardKey.numpad1) {
+        s.setView(null);
+        return true;
+      }
+      if (k == LogicalKeyboardKey.keyQ && !shift) return _mark(s, true);
+      if (k == LogicalKeyboardKey.keyU && !shift) return _mark(s, false);
+      if (k == LogicalKeyboardKey.keyO && shift) return _folderSettings(s);
+      if (k == LogicalKeyboardKey.keyV && shift) {
+        _moveTargets(s);
+        return true;
+      }
+      if (k == LogicalKeyboardKey.comma) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+        return true;
+      }
+      return false;
+    }
+
+    switch (k) {
+      case LogicalKeyboardKey.arrowDown:
+      case LogicalKeyboardKey.keyJ:
+        return _step(s, 1, wide);
+      case LogicalKeyboardKey.arrowUp:
+      case LogicalKeyboardKey.keyK:
+        return _step(s, -1, wide);
+      case LogicalKeyboardKey.home:
+        return _step(s, -1, wide, absolute: true);
+      case LogicalKeyboardKey.end:
+        return _step(s, 1, wide, absolute: true);
+      case LogicalKeyboardKey.enter:
+      case LogicalKeyboardKey.numpadEnter:
+        final c = s.cursor;
+        if (wide || c == null) return false;
+        _open(s, c, false);
+        return true;
+      case LogicalKeyboardKey.space:
+        return s.toggleSelectCurrent();
+      case LogicalKeyboardKey.delete:
+        return s.deleteFromKeyboard();
+      case LogicalKeyboardKey.backspace:
+        return s.archiveFromKeyboard();
+      case LogicalKeyboardKey.insert:
+        final t = s.keyboardTargets;
+        if (t.isEmpty) return false;
+        s.setFlagged(t, !t.every((i) => i.flagged));
+        return true;
+      case LogicalKeyboardKey.f1:
+        showShortcutsHelp(context);
+        return true;
+      case LogicalKeyboardKey.f3:
+        return _openSearch();
+      case LogicalKeyboardKey.f5:
+        s.refresh();
+        return true;
+      case LogicalKeyboardKey.contextMenu:
+        // Auf einem markierten Ordner öffnet dessen eigenes Kontextmenü (Ordnerleiste)
+        return _listOwnsKeys() && _folderSettings(s);
+      default:
+        return false;
+    }
+  }
+
+  bool _escape(AppState s, bool wide) {
+    if (_searchOpen) {
+      setState(() => _searchOpen = false);
+      _searchCtrl.clear();
+      if (s.searchQuery != null) s.clearSearch();
+      return true;
+    }
+    if (!_listOwnsKeys()) {
+      // Fokus von Knopf/Ordner lösen → Pfeiltasten steuern wieder die Mail-Liste
+      FocusManager.instance.primaryFocus?.unfocus();
+      return true;
+    }
+    if (s.selection.isNotEmpty) {
+      s.clearSelection();
+      return true;
+    }
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      _scaffoldKey.currentState!.closeDrawer();
+      return true;
+    }
+    if (wide && s.openItem != null) {
+      s.setOpen(null);
+      return true;
+    }
+    if (s.cursor != null) {
+      s.clearCursor();
+      return true;
+    }
+    return false;
+  }
+
+  bool _step(AppState s, int delta, bool wide, {bool absolute = false}) {
+    final i = s.moveCursor(delta, open: wide, absolute: absolute);
+    if (i < 0) return false;
+    _ensureVisible(i);
+    return true;
+  }
+
+  /// Markierte Zeile in den sichtbaren Bereich scrollen (Zeilenhöhe geschätzt).
+  void _ensureVisible(int index) {
+    if (!_scroll.hasClients) return;
+    const extent = 73.0;
+    final p = _scroll.position;
+    final top = index * extent;
+    if (top < p.pixels) {
+      _scroll.jumpTo(top.clamp(0, p.maxScrollExtent).toDouble());
+    } else if (top + extent > p.pixels + p.viewportDimension) {
+      _scroll.jumpTo((top + extent - p.viewportDimension).clamp(0, p.maxScrollExtent).toDouble());
+    }
+  }
+
+  bool _newMail(AppState s) {
+    if (s.accounts.isEmpty) return false;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ComposeScreen(accountId: s.viewAccountId)));
+    return true;
+  }
+
+  bool _openSearch() {
+    if (context.read<AppState>().accounts.isEmpty) return false;
+    setState(() => _searchOpen = true);
+    return true;
+  }
+
+  bool _mark(AppState s, bool seen) {
+    final t = s.keyboardTargets;
+    if (t.isEmpty) return false;
+    s.markSeen(t, seen);
+    if (s.selection.isNotEmpty) s.clearSelection();
+    return true;
+  }
+
+  Future<void> _moveTargets(AppState s) async {
+    final t = s.keyboardTargets;
+    if (t.isEmpty) return;
+    if (t.map((i) => '${i.accountId}|${i.folderPath}').toSet().length != 1) {
+      s.toast('Verschieben geht nur innerhalb eines Kontos und Ordners.');
+      return;
+    }
+    final target = await pickFolder(context, s, t.first.accountId, exclude: t.first.folderPath);
+    if (target != null) s.moveItems(t, target);
+  }
+
+  Future<void> _jumpToFolder(AppState s) async {
+    final t = await showFolderJump(context, s);
+    if (t != null) s.setView(t.$1, t.$2);
+  }
+
+  bool _folderSettings(AppState s) {
+    final acc = s.account(s.viewAccountId);
+    final f = acc == null ? null : s.folder(acc.id, s.viewPath);
+    if (acc == null || f == null) {
+      s.toast('Erst einen Ordner öffnen (Strg+G), dann Strg+Umschalt+O.');
+      return true;
+    }
+    showFolderSyncSheet(context, acc, f);
+    return true;
   }
 
   @override
@@ -439,7 +641,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: MailTile(
         item: item,
         selected: s.selection.contains(item.key),
-        opened: wide && s.openItem?.key == item.key,
+        opened: (wide && s.openItem?.key == item.key) || (!wide && s.cursor?.key == item.key),
         accountColor: s.unified && s.accounts.length > 1 && acc != null ? Color(acc.color) : null,
         onTap: () => selectionMode ? s.toggleSelect(item) : _open(s, item, wide),
         onLongPress: () => s.toggleSelect(item),

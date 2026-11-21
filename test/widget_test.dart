@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:echowp_mail/app_state.dart';
 import 'package:echowp_mail/background.dart';
+import 'package:echowp_mail/keyboard.dart';
 import 'package:echowp_mail/mail_service.dart';
 import 'package:echowp_mail/models.dart';
 import 'package:echowp_mail/new_mail.dart';
@@ -658,6 +659,173 @@ void main() {
       expect(s.items.map((i) => i.folderPath).toSet(), {'Rechnungen', 'INBOX'});
       expect(s.viewSubtitle, contains('Ungelesen'));
       await Future<void>.delayed(const Duration(seconds: 3));
+    });
+  });
+
+  group('Tastatur (Windows)', () {
+    Widget wrapNav(AppState s) => ChangeNotifierProvider<AppState>.value(
+          value: s,
+          child: MaterialApp(
+            scaffoldMessengerKey: s.messengerKey,
+            navigatorKey: s.navigatorKey,
+            navigatorObservers: [s.routeObserver],
+            home: const HomeScreen(),
+          ),
+        );
+
+    Future<void> ctrl(WidgetTester tester, LogicalKeyboardKey key, {bool shift = false}) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(key);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+    }
+
+    void wide(WidgetTester tester, {bool narrow = false}) {
+      tester.view.physicalSize = narrow ? const Size(420, 900) : const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+    }
+
+    AppState state(List<MailItem> items) {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      return AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = items;
+    }
+
+    testWidgets('Pfeiltasten, Pos1/Ende öffnen Mails in der breiten Ansicht', (tester) async {
+      wide(tester);
+      final s = state([_mail(3, seen: true), _mail(2, seen: true), _mail(1, seen: true)]);
+      await tester.pumpWidget(wrapNav(s));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(s.openItem?.uid, 3);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(s.openItem?.uid, 2);
+      await tester.sendKeyEvent(LogicalKeyboardKey.end);
+      await tester.pump();
+      expect(s.openItem?.uid, 1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.home);
+      await tester.pump();
+      expect(s.openItem?.uid, 3);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(s.openItem, isNull);
+      await _drain(tester);
+    });
+
+    testWidgets('schmale Ansicht: Pfeil markiert, Eingabe öffnet, Esc geht zurück', (tester) async {
+      wide(tester, narrow: true);
+      final s = state([_mail(2, seen: true), _mail(1, seen: true)]);
+      final back = (KeyEvent e) => handleKeyboardBack(e, s.routeObserver, s.navigatorKey);
+      HardwareKeyboard.instance.addHandler(back);
+      addTearDown(() => HardwareKeyboard.instance.removeHandler(back));
+      await tester.pumpWidget(wrapNav(s));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(s.cursor?.uid, 1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(MessageScreen), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(MessageScreen), findsNothing);
+      await _drain(tester);
+    });
+
+    testWidgets('Leertaste, Strg+A, Esc, Strg+Q und Rücktaste', (tester) async {
+      wide(tester);
+      final s = state([_mail(3), _mail(2), _mail(1)]);
+      await tester.pumpWidget(wrapNav(s));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown); // öffnet Mail 3
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(s.selection, {s.items.first.key});
+      await ctrl(tester, LogicalKeyboardKey.keyA);
+      expect(s.selection.length, 3);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(s.selection, isEmpty);
+
+      await ctrl(tester, LogicalKeyboardKey.keyQ); // geöffnete Mail 3 gelesen
+      expect(s.items.firstWhere((i) => i.uid == 3).seen, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.backspace); // archivieren → nächste wird geöffnet
+      await tester.pump();
+      expect(s.items.map((i) => i.uid), [2, 1]);
+      expect(s.openItem?.uid, 2);
+      expect(find.text('1 Nachricht archiviert'), findsOneWidget);
+      await _drain(tester);
+    });
+
+    testWidgets('Strg+N öffnet Schreiben; Strg+Eingabe sendet; Esc fragt bei Inhalt nach', (tester) async {
+      wide(tester);
+      final s = state([]);
+      final back = (KeyEvent e) => handleKeyboardBack(e, s.routeObserver, s.navigatorKey);
+      HardwareKeyboard.instance.addHandler(back);
+      addTearDown(() => HardwareKeyboard.instance.removeHandler(back));
+      await tester.pumpWidget(wrapNav(s));
+      await tester.pump();
+      await ctrl(tester, LogicalKeyboardKey.keyN);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ComposeScreen), findsOneWidget);
+
+      // Senden ohne Empfänger → Hinweis beweist, dass Strg+Eingabe ankommt
+      await ctrl(tester, LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(find.text('Bitte einen Empfänger eintragen.'), findsOneWidget);
+
+      await tester.enterText(find.widgetWithText(TextField, 'An'), 'test@example.de');
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Entwurf verwerfen?'), findsOneWidget);
+      await tester.tap(find.text('Verwerfen'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ComposeScreen), findsNothing);
+      await _drain(tester);
+    });
+
+    testWidgets('Strg+G: Ordner tippen und mit Eingabe öffnen', (tester) async {
+      wide(tester);
+      final s = state([]);
+      await tester.pumpWidget(wrapNav(s));
+      await tester.pump();
+      await ctrl(tester, LogicalKeyboardKey.keyG);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Gehe zu Ordner'), findsOneWidget);
+      await tester.enterText(find.byKey(const ValueKey('folder-jump-filter')), 'rechn');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(s.viewAccountId, 'a1');
+      expect(s.viewPath, 'Rechnungen');
+      await _drain(tester);
+    });
+
+    testWidgets('F1 zeigt die Tastaturkürzel', (tester) async {
+      wide(tester);
+      final s = state([]);
+      await tester.pumpWidget(wrapNav(s));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.f1);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Tastaturkürzel'), findsOneWidget);
+      expect(find.text('Gehe zu Ordner (tippen zum Filtern)'), findsOneWidget);
+      await _drain(tester);
     });
   });
 }

@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'ai_service.dart';
 import 'background.dart';
 import 'drive_sync.dart';
+import 'keyboard.dart';
 import 'mail_service.dart';
 import 'models.dart';
 import 'new_mail.dart';
@@ -24,6 +25,7 @@ int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
 class AppState extends ChangeNotifier {
   final messengerKey = GlobalKey<ScaffoldMessengerState>();
   final navigatorKey = GlobalKey<NavigatorState>();
+  final routeObserver = TopRouteObserver();
   final _storage = Storage();
   final mail = MailService();
   final ai = AiService();
@@ -218,6 +220,7 @@ class AppState extends ChangeNotifier {
     // Ordner angesehen → seine Mails gelten nicht mehr als „neu“
     if (accountId != null) clearNew(accountId, path);
     searchQuery = null;
+    cursor = null;
     selection.clear();
     openItem = null;
     items = [];
@@ -331,6 +334,7 @@ class AppState extends ChangeNotifier {
     final wasNew = removed.where(isNew).toList();
     _dropNew(wasNew);
     if (openItem != null && keys.contains(openItem!.key)) openItem = null;
+    if (cursor != null && keys.contains(cursor!.key)) cursor = null;
     selection.removeAll(keys);
     notifyListeners();
 
@@ -561,22 +565,85 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Entf-Taste: löscht die Auswahl, sonst die geöffnete Mail und öffnet die nächste.
-  bool deleteFromKeyboard() {
+  // ---------------------------------------------------------------- Tastatursteuerung
+
+  /// Markierte Zeile bei Tastatursteuerung in der schmalen Ansicht (breite Ansicht: [openItem]).
+  MailItem? cursor;
+
+  /// Aktuelle Mail für Tastaturbefehle: geöffnete Mail, sonst markierte Zeile.
+  MailItem? get keyboardItem => openItem ?? cursor;
+
+  /// Ziel von Tastaturbefehlen: Auswahl, sonst aktuelle Mail.
+  List<MailItem> get keyboardTargets {
+    if (selection.isNotEmpty) return selectedItems;
+    final k = keyboardItem;
+    return k == null ? const [] : [k];
+  }
+
+  /// Pfeiltasten: zur nächsten/vorherigen Mail. In der breiten Ansicht wird sie gleich geöffnet.
+  /// Gibt den neuen Index zurück (oder -1).
+  int moveCursor(int delta, {required bool open, bool absolute = false}) {
+    if (items.isEmpty) return -1;
+    final cur = keyboardItem;
+    final idx = cur == null ? -1 : items.indexWhere((i) => i.key == cur.key);
+    int next;
+    if (absolute) {
+      next = delta < 0 ? 0 : items.length - 1;
+    } else if (idx < 0) {
+      next = delta >= 0 ? 0 : items.length - 1;
+    } else {
+      next = (idx + delta).clamp(0, items.length - 1);
+    }
+    if (open) {
+      openItem = items[next];
+      cursor = null;
+    } else {
+      cursor = items[next];
+    }
+    notifyListeners();
+    return next;
+  }
+
+  void clearCursor() {
+    cursor = null;
+    notifyListeners();
+  }
+
+  /// Leertaste: aktuelle Mail aus-/abwählen.
+  bool toggleSelectCurrent() {
+    final k = keyboardItem;
+    if (k == null) return false;
+    toggleSelect(k);
+    return true;
+  }
+
+  /// Rücktaste: Auswahl bzw. aktuelle Mail archivieren (wie Entf, nur Archiv).
+  bool archiveFromKeyboard() => _removeFromKeyboard(SwipeAction.archive);
+
+  bool _removeFromKeyboard(SwipeAction action) {
     if (selection.isNotEmpty) {
-      removeWithUndo(selectedItems, SwipeAction.delete);
+      removeWithUndo(selectedItems, action);
       return true;
     }
-    final o = openItem;
+    final o = keyboardItem;
     if (o == null) return false;
+    final wasOpen = openItem?.key == o.key;
     final idx = items.indexWhere((i) => i.key == o.key);
-    removeWithUndo([o], SwipeAction.delete);
+    removeWithUndo([o], action);
     if (idx >= 0 && items.isNotEmpty) {
-      openItem = items[min(idx, items.length - 1)];
+      final next = items[min(idx, items.length - 1)];
+      if (wasOpen) {
+        openItem = next;
+      } else {
+        cursor = next;
+      }
       notifyListeners();
     }
     return true;
   }
+
+  /// Entf-Taste: löscht die Auswahl, sonst die geöffnete Mail und öffnet die nächste.
+  bool deleteFromKeyboard() => _removeFromKeyboard(SwipeAction.delete);
 
   Future<void> send({
     required String accountId,

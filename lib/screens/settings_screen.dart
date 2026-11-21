@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../widgets/common.dart';
+import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
 import 'drive_sync_screen.dart';
 
@@ -198,10 +199,17 @@ class SettingsScreen extends StatelessWidget {
           subtitle: const Text('Ersetzt alle Konten und Einstellungen auf diesem Gerät'),
           onTap: () => _import(context, s),
         ),
+        header('Bedienung'),
+        ListTile(
+          leading: const Icon(Icons.keyboard),
+          title: const Text('Tastaturkürzel'),
+          subtitle: const Text('Komplette Bedienung per Tastatur – Übersicht auch jederzeit mit F1'),
+          onTap: () => showShortcutsHelp(context),
+        ),
         header('Über'),
         const ListTile(
           leading: Icon(Icons.info_outline),
-          title: Text('EchoWP-Mail 3.2'),
+          title: Text('EchoWP-Mail 3.3'),
           subtitle: Text('Eigener Mail-Client für Android und Windows'),
         ),
         const SizedBox(height: 32),

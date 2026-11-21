@@ -99,21 +99,74 @@ class _MessageViewState extends State<MessageView> {
   void initState() {
     super.initState();
     _load();
-    if (!widget.embedded) HardwareKeyboard.instance.addHandler(_onKey);
+    HardwareKeyboard.instance.addHandler(_onKey);
   }
 
   @override
   void dispose() {
-    if (!widget.embedded) HardwareKeyboard.instance.removeHandler(_onKey);
+    HardwareKeyboard.instance.removeHandler(_onKey);
     super.dispose();
   }
 
-  /// Entf-Taste in der Vollbild-Ansicht: diese Mail löschen und schließen.
+  /// Tastatur: Antworten/Weiterleiten/KI immer; Löschen/Archiv/Markieren nur in der Vollbild-Ansicht
+  /// (in der breiten Ansicht übernimmt das die Mail-Liste).
   bool _onKey(KeyEvent e) {
-    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.delete) return false;
+    if (e is! KeyDownEvent) return false;
     if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? false) || textFieldHasFocus()) return false;
-    context.read<AppState>().removeWithUndo([widget.item], SwipeAction.delete);
-    _close();
+    final hw = HardwareKeyboard.instance;
+    final k = e.logicalKey;
+    final s = context.read<AppState>();
+    if (hw.isControlPressed && !hw.isAltPressed) {
+      if (k == LogicalKeyboardKey.keyR) {
+        _compose(hw.isShiftPressed ? ComposeMode.replyAll : ComposeMode.reply);
+        return _detail != null;
+      }
+      if (k == LogicalKeyboardKey.keyF && !hw.isShiftPressed) {
+        _compose(ComposeMode.forward);
+        return _detail != null;
+      }
+      if (!widget.embedded && !hw.isShiftPressed && (k == LogicalKeyboardKey.keyQ || k == LogicalKeyboardKey.keyU)) {
+        s.markSeen([widget.item], k == LogicalKeyboardKey.keyQ);
+        if (k == LogicalKeyboardKey.keyU) _close();
+        return true;
+      }
+      if (!widget.embedded && hw.isShiftPressed && k == LogicalKeyboardKey.keyV) {
+        pickFolder(context, s, widget.item.accountId, exclude: widget.item.folderPath).then((t) {
+          if (t != null) {
+            s.moveItems([widget.item], t);
+            _close();
+          }
+        });
+        return true;
+      }
+      return false;
+    }
+    if (hw.isAltPressed && !hw.isControlPressed) {
+      if (k == LogicalKeyboardKey.digit1 || k == LogicalKeyboardKey.numpad1) return _aiKey('summary');
+      if (k == LogicalKeyboardKey.digit2 || k == LogicalKeyboardKey.numpad2) return _aiKey('replies');
+      if (k == LogicalKeyboardKey.digit3 || k == LogicalKeyboardKey.numpad3) return _aiKey('folder');
+      if (k == LogicalKeyboardKey.keyB) {
+        setState(() => _loadImages = true);
+        return true;
+      }
+      return false;
+    }
+    if (widget.embedded) return false;
+    if (k == LogicalKeyboardKey.delete || k == LogicalKeyboardKey.backspace) {
+      s.removeWithUndo([widget.item], k == LogicalKeyboardKey.delete ? SwipeAction.delete : SwipeAction.archive);
+      _close();
+      return true;
+    }
+    if (k == LogicalKeyboardKey.insert) {
+      s.setFlagged([widget.item], !widget.item.flagged);
+      return true;
+    }
+    return false;
+  }
+
+  bool _aiKey(String kind) {
+    if (_detail == null || _aiBusy != null) return false;
+    _ai(kind);
     return true;
   }
 

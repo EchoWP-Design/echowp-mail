@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
@@ -142,7 +143,20 @@ class _AccountBlock extends StatelessWidget {
                 const ListTile(dense: true, title: Text('Ordner werden geladen …'))
               else
                 for (final f in sortFolders(s.folders[acc.id]!))
-                  GestureDetector(
+                  Focus(
+                    // Tastatur: Umschalt+F10 bzw. Menütaste auf dem markierten Ordner öffnet das Kontextmenü
+                    canRequestFocus: false,
+                    skipTraversal: true,
+                    onKeyEvent: (node, e) {
+                      final menu = e.logicalKey == LogicalKeyboardKey.contextMenu ||
+                          (e.logicalKey == LogicalKeyboardKey.f10 && HardwareKeyboard.instance.isShiftPressed);
+                      if (e is KeyDownEvent && menu && f.selectable) {
+                        showFolderSyncSheet(context, acc, f);
+                        return KeyEventResult.handled;
+                      }
+                      return KeyEventResult.ignored;
+                    },
+                    child: GestureDetector(
                     // Rechtsklick (PC) öffnet ebenfalls das Kontextmenü
                     onSecondaryTap: f.selectable ? () => showFolderSyncSheet(context, acc, f) : null,
                     child: ListTile(
@@ -181,6 +195,7 @@ class _AccountBlock extends StatelessWidget {
                       },
                       onLongPress: f.selectable ? () => showFolderSyncSheet(context, acc, f) : null,
                     ),
+                  ),
                   ),
               ListTile(
                 dense: true,

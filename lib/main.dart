@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
+import 'keyboard.dart';
 import 'notifications.dart';
 import 'screens/home_screen.dart';
 import 'theme.dart';
@@ -15,6 +17,8 @@ Future<void> main() async {
   await Notifier.init();
   final state = AppState();
   runApp(ChangeNotifierProvider.value(value: state, child: const EchoMailApp()));
+  // Esc / Alt+← = zurück (Tastatursteuerung, v. a. Windows)
+  HardwareKeyboard.instance.addHandler((e) => handleKeyboardBack(e, state.routeObserver, state.navigatorKey));
   // Antippen einer Benachrichtigung / „Antworten“, während die App läuft
   Notifier.taps.listen(state.handleNotification);
   await state.load();
@@ -35,6 +39,7 @@ class EchoMailApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: state.messengerKey,
       navigatorKey: state.navigatorKey,
+      navigatorObservers: [state.routeObserver],
       themeMode: mode,
       theme: echoTheme(Brightness.light),
       darkTheme: echoTheme(Brightness.dark),
