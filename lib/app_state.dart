@@ -106,7 +106,9 @@ class AppState extends ChangeNotifier {
     return f?.displayName ?? (viewPath == 'INBOX' ? 'Posteingang' : viewPath);
   }
 
-  String? get viewSubtitle => unified ? null : account(viewAccountId)?.email;
+  String? get viewSubtitle => unified
+      ? (searchQuery == null ? 'Ungelesen · Ordner mit Push/Automatik' : null)
+      : account(viewAccountId)?.email;
 
   Future<void> loadFolders(String accountId) {
     final running = _folderLoads[accountId];
@@ -131,8 +133,20 @@ class AppState extends ChangeNotifier {
     return roleFolder(accountId, role);
   }
 
-  List<(String, String)> _targets() =>
-      unified ? [for (final a in accounts) (a.id, 'INBOX')] : [(viewAccountId!, viewPath)];
+  /// Ordner, deren ungelesene Mails in „Alle Posteingänge“ erscheinen: alle mit Push oder Automatik.
+  List<(String, String)> get unifiedFolders => [
+        for (final a in accounts)
+          for (final p in MailCheck.polledFolders(a)) (a.id, p),
+      ];
+
+  bool inUnified(String accountId, String path) =>
+      (account(accountId)?.syncOf(path).mode ?? SyncMode.manual) != SyncMode.manual;
+
+  /// Gehört eine neue Mail aus diesem Ordner in die gerade sichtbare Liste?
+  bool showsFolder(String accountId, String path) =>
+      (unified && inUnified(accountId, path)) || (viewAccountId == accountId && viewPath == path);
+
+  List<(String, String)> _targets() => unified ? unifiedFolders : [(viewAccountId!, viewPath)];
 
   String _k(String acc, String path) => '$acc\u0000$path';
 
@@ -151,9 +165,14 @@ class AppState extends ChangeNotifier {
     final all = <MailItem>[];
     await Future.wait(_targets().map((t) async {
       try {
-        final r = await mail.conn(t.$1).fetchList(t.$2);
-        _lowest[_k(t.$1, t.$2)] = r.lowestSeq;
-        all.addAll(r.items);
+        if (unified) {
+          // „Alle Posteingänge“: nur ungelesene Mails der synchronisierten Ordner (kein Nachladen)
+          all.addAll(await mail.conn(t.$1).fetchUnseen(t.$2));
+        } else {
+          final r = await mail.conn(t.$1).fetchList(t.$2);
+          _lowest[_k(t.$1, t.$2)] = r.lowestSeq;
+          all.addAll(r.items);
+        }
       } catch (e) {
         errors.add('${account(t.$1)?.displayName ?? ''}: ${errText(e)}');
       }
@@ -421,7 +440,8 @@ class AppState extends ChangeNotifier {
 
   int unreadFor(String accountId, String path) => unread[accountId]?[path] ?? 0;
 
-  int get totalInboxUnread => accounts.fold(0, (sum, a) => sum + unreadFor(a.id, 'INBOX'));
+  /// Zähler bei „Alle Posteingänge“: ungelesene Mails aller Ordner mit Push/Automatik.
+  int get totalInboxUnread => unifiedFolders.fold(0, (sum, f) => sum + unreadFor(f.$1, f.$2));
 
   Future<void> loadUnread(String accountId) async {
     if (account(accountId) == null) return;
@@ -652,12 +672,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// Neue Mails in die angezeigte Liste übernehmen (falls dieser Ordner gerade sichtbar ist).
-  void _insertNews(String accountId, String path, List<MailItem> news) {
+  void insertNews(String accountId, String path, List<MailItem> news) {
     if (news.isEmpty) return;
     _scheduleCounts(accountId);
     reloadNew();
-    final visible = (unified && path == 'INBOX') || (viewAccountId == accountId && viewPath == path);
-    if (!visible || searchQuery != null) return;
+    if (!showsFolder(accountId, path) || searchQuery != null) return;
     final keys = items.map((i) => i.key).toSet();
     items.addAll(news.where((n) => !keys.contains(n.key)));
     items.sort(_byDate);
@@ -675,7 +694,7 @@ class AppState extends ChangeNotifier {
         for (final path in MailCheck.polledFolders(a)) {
           try {
             final news = await MailCheck.checkFolder(mail.conn(a.id), a, path, settings);
-            _insertNews(a.id, path, news);
+            insertNews(a.id, path, news);
           } catch (_) {}
         }
       }
@@ -699,7 +718,7 @@ class AppState extends ChangeNotifier {
       _localPush ??= PushEngine((a, path) async {
         try {
           final news = await MailCheck.checkFolder(mail.conn(a.id), a, path, settings);
-          _insertNews(a.id, path, news);
+          insertNews(a.id, path, news);
         } catch (_) {}
       });
       await _localPush!.apply(accounts);
@@ -711,8 +730,7 @@ class AppState extends ChangeNotifier {
         if (acc == null || path == null) return;
         _scheduleCounts(acc);
         reloadNew();
-        final visible = (unified && path == 'INBOX') || (viewAccountId == acc && viewPath == path);
-        if (visible && searchQuery == null && !loading) refresh();
+        if (showsFolder(acc, path) && searchQuery == null && !loading) refresh();
       });
       await PushService.ensure(anyPush: anyPush);
     }
@@ -736,6 +754,8 @@ class AppState extends ChangeNotifier {
     await _markChanged();
     await _restartPush();
     if (fs.mode != SyncMode.manual) _scheduleCounts(accountId, delay: Duration.zero);
+    // Ordner kommt in „Alle Posteingänge“ hinzu bzw. fällt heraus
+    if (unified && searchQuery == null && !loading) refresh();
   }
 
   // ---------------------------------------------------------------- Einstellungen / Konten

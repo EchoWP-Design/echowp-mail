@@ -610,4 +610,54 @@ void main() {
       }
     });
   });
+
+  group('Alle Posteingänge (nur ungelesene, synchronisierte Ordner)', () {
+    test('enthält nur Ordner mit Push oder Automatik', () {
+      final a = _acc()
+        ..folderSync['Rechnungen'] = const FolderSync(SyncMode.auto, true)
+        ..folderSync['Spam'] = const FolderSync(SyncMode.manual, false);
+      final s = AppState()..accounts = [a];
+      expect(s.unifiedFolders, containsAll([('a1', 'INBOX'), ('a1', 'Rechnungen')]));
+      expect(s.unifiedFolders.length, 2);
+      expect(s.inUnified('a1', 'Spam'), isFalse);
+
+      // Posteingang auf manuell → fällt aus „Alle Posteingänge“ heraus
+      a.folderSync['INBOX'] = const FolderSync(SyncMode.manual, false);
+      expect(s.unifiedFolders, [('a1', 'Rechnungen')]);
+    });
+
+    test('Zähler summiert ungelesene aller synchronisierten Ordner', () {
+      final a = _acc()..folderSync['Rechnungen'] = const FolderSync(SyncMode.auto, true);
+      final s = AppState()
+        ..accounts = [a]
+        ..unread['a1'] = {'INBOX': 3, 'Rechnungen': 2, 'Archivx': 9};
+      expect(s.totalInboxUnread, 5);
+    });
+
+    test('neue Mails aus synchronisierten Ordnern erscheinen, aus manuellen nicht', () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final a = _acc()..folderSync['Rechnungen'] = const FolderSync(SyncMode.auto, true);
+      final s = AppState()..accounts = [a];
+      expect(s.unified, isTrue);
+      MailItem inFolder(int uid, String path) => MailItem(
+            accountId: 'a1',
+            folderPath: path,
+            uid: uid,
+            subject: 'S$uid',
+            fromName: 'A',
+            fromEmail: 'a@example.de',
+            date: DateTime(2026, 11, 21, 12, uid),
+            seen: false,
+            flagged: false,
+            hasAttachments: false,
+          );
+      s.insertNews('a1', 'Rechnungen', [inFolder(1, 'Rechnungen')]);
+      s.insertNews('a1', 'Spam', [inFolder(2, 'Spam')]);
+      s.insertNews('a1', 'INBOX', [inFolder(3, 'INBOX')]);
+      expect(s.items.map((i) => i.folderPath).toSet(), {'Rechnungen', 'INBOX'});
+      expect(s.viewSubtitle, contains('Ungelesen'));
+      await Future<void>.delayed(const Duration(seconds: 3));
+    });
+  });
 }

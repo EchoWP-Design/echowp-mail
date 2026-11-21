@@ -288,6 +288,23 @@ class AccountConnection {
         return PageResult(items, start);
       });
 
+  /// Nur ungelesene Mails eines Ordners (für „Alle Posteingänge“), neueste zuerst begrenzt.
+  Future<List<MailItem>> fetchUnseen(String path, {int limit = 150}) => _run((c) async {
+        await _select(c, path, force: true);
+        final res = await c.uidSearchMessages(searchCriteria: 'UNSEEN');
+        final seq = res.matchingSequence;
+        if (seq == null || seq.isEmpty) return <MailItem>[];
+        var ids = seq.toList();
+        if (ids.length > limit) ids = ids.sublist(ids.length - limit);
+        final fetched = await c.uidFetchMessages(
+            em.MessageSequence.fromIds(ids, isUid: true), '(UID FLAGS ENVELOPE BODYSTRUCTURE)');
+        return fetched.messages
+            .map((m) => mimeToItem(m, account.id, path))
+            .whereType<MailItem>()
+            .where((i) => !i.seen)
+            .toList();
+      });
+
   Future<List<MailItem>> search(String path, String query) => _run((c) async {
         await _select(c, path, force: true);
         // Steuerzeichen, Anführungszeichen und Backslashes entfernen (sonst IMAP-Befehlsinjektion möglich)
