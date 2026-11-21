@@ -209,7 +209,7 @@ class SettingsScreen extends StatelessWidget {
         header('Über'),
         const ListTile(
           leading: Icon(Icons.info_outline),
-          title: Text('EchoWP-Mail 3.6'),
+          title: Text('EchoWP-Mail 4.0'),
           subtitle: Text('Eigener Mail-Client für Android und Windows'),
         ),
         const SizedBox(height: 32),

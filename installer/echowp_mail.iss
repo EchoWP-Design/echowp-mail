@@ -2,7 +2,7 @@
 [Setup]
 AppId={{8C3F2A1E-5B7D-4E9A-A1C2-3D4E5F607182}
 AppName=EchoWP-Mail
-AppVersion=3.6.0
+AppVersion=4.0.0
 AppPublisher=EchoWP
 DefaultDirName={autopf}\EchoWP-Mail
 DefaultGroupName=EchoWP-Mail
