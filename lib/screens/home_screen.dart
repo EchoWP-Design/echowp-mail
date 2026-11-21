@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../file_drop.dart';
 import '../models.dart';
 import '../widgets/common.dart';
 import '../widgets/folder_jump.dart';
@@ -53,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     HardwareKeyboard.instance.addHandler(_onKey);
     _state = context.read<AppState>()..openMail = _openFromNotification;
+    FileDrop.fallback = _dropToNewMail;
     _loadListWidth();
     _scroll.addListener(() {
       if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 500) {
@@ -104,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     if (_state.openMail == _openFromNotification) _state.openMail = null;
+    if (FileDrop.fallback == _dropToNewMail) FileDrop.fallback = null;
     WidgetsBinding.instance.removeObserver(this);
     HardwareKeyboard.instance.removeHandler(_onKey);
     _scroll.dispose();
@@ -283,6 +286,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } else if (top + extent > p.pixels + p.viewportDimension) {
       _scroll.jumpTo((top + extent - p.viewportDimension).clamp(0, p.maxScrollExtent).toDouble());
     }
+  }
+
+  /// Dateien aufs Hauptfenster gezogen → neue Mail mit diesen Anhängen.
+  Future<void> _dropToNewMail(List<String> paths) async {
+    final s = _state;
+    if (s.accounts.isEmpty) {
+      s.toast('Zuerst ein Konto einrichten.');
+      return;
+    }
+    final r = await FileDrop.read(paths);
+    if (!mounted) return;
+    if (r.skipped.isNotEmpty) s.toast('Nicht angehängt: ${r.skipped.join(', ')}');
+    if (r.files.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+          builder: (_) => ComposeScreen(accountId: s.viewAccountId, initialAttachments: r.files)),
+    );
   }
 
   bool _newMail(AppState s) {
@@ -524,7 +545,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               enabled: singleAccount,
               child: const Text('Verschieben …'),
             ),
-            const PopupMenuItem(value: 'flag', child: Text('Markierung umschalten')),
+            const PopupMenuItem(value: 'flag', child: Text('Stern umschalten')),
             const PopupMenuItem(value: 'all', child: Text('Alle auswählen')),
           ],
         ),
@@ -665,6 +686,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onTap: () => selectionMode ? s.toggleSelect(item) : _open(s, item, wide),
         onLongPress: () => s.toggleSelect(item),
         onAvatarTap: () => s.toggleSelect(item),
+        onStarTap: () => s.setFlagged([item], !item.flagged),
       ),
     );
   }

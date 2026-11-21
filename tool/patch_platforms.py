@@ -163,4 +163,87 @@ patch(
         '"ProductName", "echowp_mail"', '"ProductName", "EchoWP-Mail"'
     ),
 )
+# ---------- Windows: Dateien per Drag & Drop (WM_DROPFILES → Kanal "echowp/drop") ----------
+def need(t: str, anchor: str, what: str) -> None:
+    if anchor not in t:
+        raise SystemExit(f"Drag & Drop: Ankerstelle fehlt in {what}: {anchor!r}")
+
+
+def win_window_h(t: str) -> str:
+    if "drop_channel_" in t:
+        return t
+    need(t, "#include <flutter/flutter_view_controller.h>", "flutter_window.h")
+    need(t, "std::unique_ptr<flutter::FlutterViewController> flutter_controller_;", "flutter_window.h")
+    t = t.replace(
+        "#include <flutter/flutter_view_controller.h>",
+        "#include <flutter/flutter_view_controller.h>\n#include <flutter/method_channel.h>\n#include <flutter/encodable_value.h>",
+        1,
+    )
+    return t.replace(
+        "std::unique_ptr<flutter::FlutterViewController> flutter_controller_;",
+        "std::unique_ptr<flutter::FlutterViewController> flutter_controller_;\n\n"
+        "  // Kanal für per Drag & Drop abgelegte Dateien\n"
+        "  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> drop_channel_;",
+        1,
+    )
+
+
+DROP_HANDLER = """  // Dateien aus dem Explorer ins Fenster gezogen → Pfade (UTF-8) an Dart melden
+  if (message == WM_DROPFILES) {
+    HDROP drop = reinterpret_cast<HDROP>(wparam);
+    flutter::EncodableList files;
+    const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+    for (UINT i = 0; i < count; ++i) {
+      const UINT len = DragQueryFileW(drop, i, nullptr, 0);
+      if (len == 0) continue;
+      std::wstring path(len + 1, L'\\0');
+      DragQueryFileW(drop, i, path.data(), len + 1);
+      path.resize(len);
+      const int size = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), static_cast<int>(len), nullptr, 0, nullptr, nullptr);
+      std::string utf8(size, '\\0');
+      WideCharToMultiByte(CP_UTF8, 0, path.c_str(), static_cast<int>(len), utf8.data(), size, nullptr, nullptr);
+      files.push_back(flutter::EncodableValue(utf8));
+    }
+    DragFinish(drop);
+    if (drop_channel_ && !files.empty()) {
+      drop_channel_->InvokeMethod("files", std::make_unique<flutter::EncodableValue>(files));
+    }
+    return 0;
+  }
+
+"""
+
+
+def win_window_cpp(t: str) -> str:
+    if "echowp/drop" in t:
+        return t
+    for a in ['#include "flutter_window.h"', "RegisterPlugins(flutter_controller_->engine());",
+              "  return Win32Window::MessageHandler(hwnd, message, wparam, lparam);",
+              "    flutter_controller_ = nullptr;"]:
+        need(t, a, "flutter_window.cpp")
+    t = t.replace(
+        '#include "flutter_window.h"',
+        '#include "flutter_window.h"\n\n#include <shellapi.h>\n#include <string>\n\n#include <flutter/standard_method_codec.h>',
+        1,
+    )
+    t = t.replace(
+        "RegisterPlugins(flutter_controller_->engine());",
+        "RegisterPlugins(flutter_controller_->engine());\n"
+        "  drop_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(\n"
+        '      flutter_controller_->engine()->messenger(), "echowp/drop",\n'
+        "      &flutter::StandardMethodCodec::GetInstance());\n"
+        "  DragAcceptFiles(GetHandle(), TRUE);",
+        1,
+    )
+    t = t.replace("    flutter_controller_ = nullptr;", "    drop_channel_ = nullptr;\n    flutter_controller_ = nullptr;", 1)
+    return t.replace(
+        "  return Win32Window::MessageHandler(hwnd, message, wparam, lparam);",
+        DROP_HANDLER + "  return Win32Window::MessageHandler(hwnd, message, wparam, lparam);",
+        1,
+    )
+
+
+patch(root / "windows/runner/flutter_window.h", win_window_h)
+patch(root / "windows/runner/flutter_window.cpp", win_window_cpp)
+
 print("Plattform-Anpassungen abgeschlossen.")

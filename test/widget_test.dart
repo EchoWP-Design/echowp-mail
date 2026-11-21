@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:echowp_mail/app_state.dart';
 import 'package:echowp_mail/background.dart';
+import 'package:echowp_mail/file_drop.dart';
 import 'package:echowp_mail/keyboard.dart';
 import 'package:echowp_mail/mail_service.dart';
 import 'package:echowp_mail/models.dart';
@@ -13,6 +14,7 @@ import 'package:echowp_mail/screens/message_screen.dart';
 import 'package:echowp_mail/theme.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
+import 'package:echowp_mail/widgets/mail_tile.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -829,6 +831,117 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Tastaturkürzel'), findsOneWidget);
       expect(find.text('Gehe zu Ordner (tippen zum Filtern)'), findsOneWidget);
+      await _drain(tester);
+    });
+  });
+
+  group('Stern-Markierung', () {
+    test('Stern-Mails bleiben in „Alle Posteingänge“, auch gelesen', () {
+      final read = _mail(1, seen: true);
+      final starred = _mail(2, seen: true)..flagged = true;
+      final unread = _mail(3);
+      expect(keepInUnified(read), isFalse);
+      expect(keepInUnified(starred), isTrue);
+      expect(keepInUnified(unread), isTrue);
+    });
+
+    testWidgets('Stern in der Liste und in der Mail umschalten', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final m = _mail(1);
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [m];
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      expect(find.byIcon(Icons.star_border), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('star')));
+      await tester.pump();
+      expect(m.flagged, isTrue);
+      expect(find.byIcon(Icons.star), findsOneWidget);
+      // Lesen entfernt den Stern nicht
+      s.markSeen([m], true);
+      await tester.pump();
+      expect(m.flagged, isTrue);
+      expect(keepInUnified(m), isTrue);
+      await tester.tap(find.byKey(const ValueKey('star')));
+      await tester.pump();
+      expect(m.flagged, isFalse);
+      expect(SwipeAction.toggleFlag.label, 'Stern');
+      await _drain(tester);
+    });
+
+    testWidgets('StarButton ohne Aktion zeigt nur gesetzte Sterne', (tester) async {
+      await tester.pumpWidget(const MaterialApp(
+          home: Row(children: [StarButton(starred: false), StarButton(starred: true)])));
+      expect(find.byIcon(Icons.star), findsOneWidget);
+      expect(find.byIcon(Icons.star_border), findsNothing);
+    });
+  });
+
+  group('Anhänge per Drag & Drop', () {
+    late Directory dir;
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('echowp_drop');
+    });
+    tearDown(() {
+      try {
+        dir.deleteSync(recursive: true);
+      } catch (_) {}
+    });
+
+    test('Dateien werden gelesen, Ordner übersprungen', () async {
+      final f = File('${dir.path}/rechnung.pdf')..writeAsBytesSync([1, 2, 3]);
+      final r = await FileDrop.read([f.path, dir.path]);
+      expect(r.files.length, 1);
+      expect(r.files.first.$1, 'rechnung.pdf');
+      expect(r.files.first.$2, [1, 2, 3]);
+      expect(r.skipped.single, contains('Ordner'));
+    });
+
+    testWidgets('ins Schreiben-Fenster gezogene Datei wird Anhang', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      final path = '${dir.path}/foto.jpg';
+      await tester.runAsync(() async {
+        File(path).writeAsBytesSync(List.filled(10, 7));
+        FileDrop.deliver([path]);
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pump();
+      expect(find.widgetWithText(InputChip, 'foto.jpg'), findsOneWidget);
+      expect(find.text('1 Anhang hinzugefügt'), findsOneWidget);
+      await _drain(tester);
+    });
+
+    testWidgets('aufs Hauptfenster gezogen → neue Mail mit Anhang', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      final path = '${dir.path}/vertrag.docx';
+      await tester.runAsync(() async {
+        File(path).writeAsBytesSync([4, 5, 6]);
+        FileDrop.deliver([path]);
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(find.widgetWithText(InputChip, 'vertrag.docx'), findsOneWidget);
       await _drain(tester);
     });
   });

@@ -11,6 +11,7 @@ class MailTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback onAvatarTap;
+  final VoidCallback? onStarTap;
 
   const MailTile({
     super.key,
@@ -21,6 +22,7 @@ class MailTile extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     required this.onAvatarTap,
+    this.onStarTap,
   });
 
   @override
@@ -99,7 +101,7 @@ class MailTile extends StatelessWidget {
                       ),
                       if (item.hasAttachments)
                         Icon(Icons.attach_file, size: 16, color: cs.onSurfaceVariant),
-                      if (item.flagged) const Icon(Icons.flag, size: 16, color: Color(0xFFFB8C00)),
+                      StarButton(starred: item.flagged, onTap: onStarTap),
                     ]),
                   ],
                 ),
@@ -107,6 +109,36 @@ class MailTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Stern-Farbe (EchoWP-Gelb, im hellen Design etwas dunkler für Kontrast).
+Color starColor(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark ? const Color(0xFFFFD400) : const Color(0xFFE0B000);
+
+/// Anklickbarer Stern in der Mailliste.
+class StarButton extends StatelessWidget {
+  final bool starred;
+  final VoidCallback? onTap;
+  const StarButton({super.key, required this.starred, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = Icon(
+      starred ? Icons.star : Icons.star_border,
+      size: 20,
+      color: starred ? starColor(context) : Theme.of(context).colorScheme.outline,
+    );
+    if (onTap == null) return starred ? icon : const SizedBox.shrink();
+    return Tooltip(
+      message: starred ? 'Stern entfernen' : 'Mit Stern markieren',
+      child: InkResponse(
+        key: const ValueKey('star'),
+        onTap: onTap,
+        radius: 18,
+        child: Padding(padding: const EdgeInsets.only(left: 6), child: icon),
       ),
     );
   }

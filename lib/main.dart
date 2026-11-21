@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -5,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
+import 'file_drop.dart';
 import 'keyboard.dart';
 import 'notifications.dart';
 import 'screens/home_screen.dart';
@@ -15,6 +18,8 @@ Future<void> main() async {
   await initializeDateFormatting('de_DE');
   Intl.defaultLocale = 'de_DE';
   await Notifier.init();
+  // Dateien per Drag & Drop (nur Windows-Fenster meldet sie)
+  if (Platform.isWindows) FileDrop.init();
   final state = AppState();
   runApp(ChangeNotifierProvider.value(value: state, child: const EchoMailApp()));
   // Esc / Alt+← = zurück (Tastatursteuerung, v. a. Windows)

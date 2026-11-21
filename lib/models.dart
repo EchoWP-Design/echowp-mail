@@ -255,7 +255,7 @@ extension SwipeActionInfo on SwipeAction {
         SwipeAction.delete => 'Löschen',
         SwipeAction.archive => 'Archivieren',
         SwipeAction.toggleRead => 'Gelesen / Ungelesen',
-        SwipeAction.toggleFlag => 'Markieren (Fahne)',
+        SwipeAction.toggleFlag => 'Stern',
         SwipeAction.move => 'Verschieben …',
         SwipeAction.moveAi => 'KI-Ordnervorschlag',
       };
@@ -265,7 +265,7 @@ extension SwipeActionInfo on SwipeAction {
         SwipeAction.delete => Icons.delete,
         SwipeAction.archive => Icons.archive,
         SwipeAction.toggleRead => Icons.mark_email_read,
-        SwipeAction.toggleFlag => Icons.flag,
+        SwipeAction.toggleFlag => Icons.star,
         SwipeAction.move => Icons.drive_file_move,
         SwipeAction.moveAi => Icons.auto_awesome,
       };
@@ -275,7 +275,7 @@ extension SwipeActionInfo on SwipeAction {
         SwipeAction.delete => const Color(0xFFE53935),
         SwipeAction.archive => const Color(0xFF43A047),
         SwipeAction.toggleRead => const Color(0xFF0288D1),
-        SwipeAction.toggleFlag => const Color(0xFFFB8C00),
+        SwipeAction.toggleFlag => const Color(0xFFE0B000),
         SwipeAction.move => const Color(0xFF6D4C41),
         SwipeAction.moveAi => const Color(0xFF8E24AA),
       };

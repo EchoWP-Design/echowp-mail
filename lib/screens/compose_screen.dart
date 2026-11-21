@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../file_drop.dart';
 import '../mail_service.dart';
 import '../widgets/common.dart';
 
@@ -19,8 +21,16 @@ class ComposeScreen extends StatefulWidget {
   final String? initialText;
   final String? accountId;
   final String? initialTo;
+  /// Anhänge, die schon beim Öffnen dabei sind (z. B. per Drag & Drop aufs Hauptfenster).
+  final List<(String, Uint8List)> initialAttachments;
   const ComposeScreen(
-      {super.key, this.mode = ComposeMode.newMail, this.original, this.initialText, this.accountId, this.initialTo});
+      {super.key,
+      this.mode = ComposeMode.newMail,
+      this.original,
+      this.initialText,
+      this.accountId,
+      this.initialTo,
+      this.initialAttachments = const []});
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -49,6 +59,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final acc = s.account(_accountId)!;
     final own = s.accounts.map((a) => a.email.toLowerCase()).toSet();
     if (widget.initialTo != null) _to.text = widget.initialTo!;
+    _attachments.addAll(widget.initialAttachments);
+    FileDrop.listen(_onDrop);
 
     if (o != null) {
       final subj = o.item.subject;
@@ -127,11 +139,25 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   @override
   void dispose() {
+    FileDrop.unlisten(_onDrop);
     _viewHold.releaseView();
     for (final c in [_to, _cc, _bcc, _subject, _body]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  /// Dateien aus dem Explorer ins Fenster gezogen (Windows).
+  Future<void> _onDrop(List<String> paths) async {
+    final r = await FileDrop.read(paths);
+    if (!mounted) return;
+    setState(() => _attachments.addAll(r.files));
+    final s = context.read<AppState>();
+    if (r.skipped.isNotEmpty) {
+      s.toast('Nicht angehängt: ${r.skipped.join(', ')}');
+    } else if (r.files.isNotEmpty) {
+      s.toast(r.files.length == 1 ? '1 Anhang hinzugefügt' : '${r.files.length} Anhänge hinzugefügt');
+    }
   }
 
   Future<void> _attach() async {
@@ -301,6 +327,21 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 decoration: const InputDecoration(labelText: 'Betreff', border: InputBorder.none),
               ),
               const Divider(),
+              if (_attachments.isEmpty && Platform.isWindows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(children: [
+                    Icon(Icons.file_download_outlined, size: 18, color: Theme.of(context).colorScheme.outline),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text('Anhänge: Dateien einfach ins Fenster ziehen',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: Theme.of(context).colorScheme.outline)),
+                    ),
+                  ]),
+                ),
               if (_attachments.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),

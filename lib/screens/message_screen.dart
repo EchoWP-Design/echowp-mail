@@ -11,6 +11,7 @@ import '../app_state.dart';
 import '../mail_service.dart';
 import '../models.dart';
 import '../widgets/common.dart';
+import '../widgets/mail_tile.dart';
 import 'compose_screen.dart';
 
 class MessageScreen extends StatelessWidget {
@@ -302,6 +303,13 @@ class _MessageViewState extends State<MessageView> {
             },
           ),
           IconButton(
+            key: const ValueKey('msg-star'),
+            tooltip: item.flagged ? 'Stern entfernen (Einfg)' : 'Mit Stern markieren (Einfg)',
+            icon: Icon(item.flagged ? Icons.star : Icons.star_border,
+                color: item.flagged ? starColor(context) : null),
+            onPressed: () => s.setFlagged([item], !item.flagged),
+          ),
+          IconButton(
             tooltip: 'Löschen',
             icon: const Icon(Icons.delete_outline),
             onPressed: () {
@@ -321,8 +329,6 @@ class _MessageViewState extends State<MessageView> {
                 case 'unread':
                   s.markSeen([item], false);
                   _close();
-                case 'flag':
-                  s.setFlagged([item], !item.flagged);
                 case 'html':
                   setState(() => _showHtml = !_showHtml);
               }
@@ -330,7 +336,6 @@ class _MessageViewState extends State<MessageView> {
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'move', child: Text('Verschieben …')),
               const PopupMenuItem(value: 'unread', child: Text('Als ungelesen markieren')),
-              PopupMenuItem(value: 'flag', child: Text(item.flagged ? 'Markierung entfernen' : 'Markieren')),
               PopupMenuItem(value: 'html', child: Text(_showHtml ? 'Als Text anzeigen' : 'Als HTML anzeigen')),
             ],
           ),
@@ -362,7 +367,6 @@ class _MessageViewState extends State<MessageView> {
                 Text(formatFullDate(item.date), style: theme.textTheme.bodySmall),
               ]),
             ),
-            if (item.flagged) const Icon(Icons.flag, color: Color(0xFFFB8C00)),
           ]),
           if (d.attachments.isNotEmpty) ...[
             const SizedBox(height: 12),

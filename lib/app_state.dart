@@ -109,7 +109,7 @@ class AppState extends ChangeNotifier {
   }
 
   String? get viewSubtitle => unified
-      ? (searchQuery == null ? 'Ungelesen · Ordner mit Push/Automatik' : null)
+      ? (searchQuery == null ? 'Ungelesen + Stern · Ordner mit Push/Automatik' : null)
       : account(viewAccountId)?.email;
 
   Future<void> loadFolders(String accountId) {
@@ -168,7 +168,7 @@ class AppState extends ChangeNotifier {
     await Future.wait(_targets().map((t) async {
       try {
         if (unified) {
-          // „Alle Posteingänge“: nur ungelesene Mails der synchronisierten Ordner (kein Nachladen)
+          // „Alle Posteingänge“: ungelesene + mit Stern markierte Mails der synchronisierten Ordner (kein Nachladen)
           all.addAll(await mail.conn(t.$1).fetchUnseen(t.$2));
         } else {
           final r = await mail.conn(t.$1).fetchList(t.$2);

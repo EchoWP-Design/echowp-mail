@@ -25,7 +25,7 @@ const keyboardShortcuts = <(String, List<(String, String)>)>[
     ('Entf', 'Löschen'),
     ('Rücktaste', 'Archivieren'),
     ('Strg + Q / Strg + U', 'Als gelesen / ungelesen markieren'),
-    ('Einfg', 'Markierung (Fahne) umschalten'),
+    ('Einfg', 'Stern setzen / entfernen'),
     ('Strg + Umschalt + V', 'In Ordner verschieben'),
   ]),
   ('Geöffnete Mail', [
@@ -39,7 +39,7 @@ const keyboardShortcuts = <(String, List<(String, String)>)>[
   ('Mail schreiben', [
     ('Strg + N', 'Neue Mail'),
     ('Strg + Eingabe', 'Senden'),
-    ('Strg + Umschalt + A', 'Anhang hinzufügen'),
+    ('Strg + Umschalt + A', 'Anhang hinzufügen (oder Dateien ins Fenster ziehen)'),
     ('Strg + Umschalt + K', 'Text mit KI überarbeiten'),
     ('Esc', 'Schließen (fragt bei Inhalt nach)'),
   ]),

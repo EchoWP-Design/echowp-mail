@@ -7,6 +7,9 @@ import 'package:enough_mail/enough_mail.dart' as em;
 import 'models.dart';
 
 /// Serialisiert Zugriffe auf eine IMAP-Verbindung (IMAP kennt nur einen ausgewählten Ordner).
+/// Bleibt eine Mail in „Alle Posteingänge“? Ungelesen oder mit Stern.
+bool keepInUnified(MailItem i) => !i.seen || i.flagged;
+
 class _Lock {
   Future<void> _last = Future.value();
   Future<T> run<T>(Future<T> Function() fn) {
@@ -289,9 +292,10 @@ class AccountConnection {
       });
 
   /// Nur ungelesene Mails eines Ordners (für „Alle Posteingänge“), neueste zuerst begrenzt.
+  /// Ungelesene und mit Stern markierte Mails (Stern-Mails bleiben auch gelesen sichtbar).
   Future<List<MailItem>> fetchUnseen(String path, {int limit = 150}) => _run((c) async {
         await _select(c, path, force: true);
-        final res = await c.uidSearchMessages(searchCriteria: 'UNSEEN');
+        final res = await c.uidSearchMessages(searchCriteria: 'OR UNSEEN FLAGGED');
         final seq = res.matchingSequence;
         if (seq == null || seq.isEmpty) return <MailItem>[];
         var ids = seq.toList();
@@ -301,7 +305,7 @@ class AccountConnection {
         return fetched.messages
             .map((m) => mimeToItem(m, account.id, path))
             .whereType<MailItem>()
-            .where((i) => !i.seen)
+            .where(keepInUnified)
             .toList();
       });
 
