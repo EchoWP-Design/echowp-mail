@@ -110,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   // ---------------------------------------------------------------- Tastatursteuerung (v. a. Windows)
 
-  static const _navKeys = {
+  static final _navKeys = <LogicalKeyboardKey>{
     LogicalKeyboardKey.arrowDown,
     LogicalKeyboardKey.arrowUp,
     LogicalKeyboardKey.keyJ,
