@@ -12,8 +12,8 @@ pubspec.lock
 .vscode/
 dist/
 # Plattformordner werden im Build per "flutter create" erzeugt
-android/
-windows/
+/android/
+/windows/
 ios/
 linux/
 macos/
