@@ -70,17 +70,15 @@ final class EdDSALegacySecretMaterial implements SigningKeyMaterialInterface {
     ).sign(
       Helper.hashDigest(message, hash),
     );
-    final bitLength = (nacl.SignedMessage.signatureLength * 4).pack16();
+    // ECHOWP-PATCH: r und s als korrekte MPIs (ohne führende Nullbytes, mit echter Bitlänge)
+    final half = nacl.SignedMessage.signatureLength ~/ 2;
+    final r = Uint8List.fromList(signed.signature.sublist(0, half)).toUnsignedBigInt();
+    final s = Uint8List.fromList(signed.signature.sublist(half)).toUnsignedBigInt();
     return Uint8List.fromList([
-      ...bitLength, // r bit length
-      ...signed.signature.sublist(
-        0,
-        nacl.SignedMessage.signatureLength ~/ 2,
-      ), // r
-      ...bitLength, // s bit length
-      ...signed.signature.sublist(
-        nacl.SignedMessage.signatureLength ~/ 2,
-      ), // s
+      ...r.bitLength.pack16(),
+      ...r.toUnsignedBytes(),
+      ...s.bitLength.pack16(),
+      ...s.toUnsignedBytes(),
     ]);
   }
 

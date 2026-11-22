@@ -1647,6 +1647,16 @@ void main() {
       final armored = between(raw, '-----BEGIN PGP MESSAGE-----', '-----END PGP MESSAGE-----');
       final msg = pg.OpenPGP.readEncryptedMessage(armored) as pg.EncryptedMessage;
       expect(msg.aeadProtected, isFalse, reason: 'Thunderbird kann SEIPDv2/AEAD nicht lesen');
+      // Ed25519: r oder s beginnt bei ~1/128 der Signaturen mit 0x00 – alle müssen gültig sein
+      final signer = pg.OpenPGP.decryptPrivateKey(a.ownSecretArmored('a1')!, passA);
+      final pubA = pg.OpenPGP.readPublicKey(a.ownPublicArmored('a1')!);
+      var bad = 0;
+      for (var i = 0; i < 400; i++) {
+        final m = pg.OpenPGP.createLiteralMessage(Uint8List.fromList(utf8.encode('Nachricht $i')));
+        final sig = pg.OpenPGP.readSignature(pg.OpenPGP.signDetached(m, [signer]).armor());
+        if (!m.verifyDetached([pubA], sig).any((v) => v.isVerified)) bad++;
+      }
+      expect(bad, 0);
     });
 
     test('Bcc wird nie in die Mail geschrieben', () {

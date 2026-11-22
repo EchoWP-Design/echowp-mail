@@ -4,6 +4,8 @@
 
 library;
 
+import 'dart:typed_data';
+
 import 'package:pinenacl/ed25519.dart';
 import 'package:pointycastle/asn1.dart';
 
@@ -38,15 +40,25 @@ final class EdDSALegacyPublicMaterial extends ECPublicMaterial
     final HashAlgorithm hash,
     final Uint8List signature,
   ) {
+    // ECHOWP-PATCH: Länge aus dem MPI-Kopf lesen und r/s auf je 32 Byte auffüllen
+    // (vorher scheiterte jede Signatur, deren r oder s mit 0x00 beginnt, ~1/128)
+    final rLen = (signature.sublist(0, 2).unpack16() + 7) >> 3;
     final r = Helper.readMPI(signature);
-    final s = Helper.readMPI(signature.sublist(r.byteLength + 2));
+    final s = Helper.readMPI(signature.sublist(rLen + 2));
 
     return VerifyKey(q.toUnsignedBytes().sublist(1)).verify(
       signature: Signature(Uint8List.fromList([
-        ...r.toUnsignedBytes(),
-        ...s.toUnsignedBytes(),
+        ..._pad32(r),
+        ..._pad32(s),
       ])),
       message: Helper.hashDigest(message, hash),
     );
   }
+}
+
+/// ECHOWP-PATCH: BigInt → genau 32 Byte (führende Nullen auffüllen).
+Uint8List _pad32(BigInt v) {
+  final b = v.toUnsignedBytes();
+  if (b.length >= 32) return Uint8List.fromList(b.sublist(b.length - 32));
+  return Uint8List(32)..setRange(32 - b.length, 32, b);
 }
