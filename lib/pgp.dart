@@ -175,16 +175,8 @@ class PgpService {
   Future<PgpKeyInfo> generate(String accountId, String name, String email, String passphrase) async {
     if (passphrase.length < 8) throw const PgpException('Das Passwort muss mindestens 8 Zeichen haben.');
     final uid = name.trim().isEmpty ? email : '${name.trim()} <$email>';
-    // dart_pg 2.0.0 scheitert, wenn der zufällige Ed25519-Schlüssel mit 0x00 beginnt (~1/256):
-    // dann einfach neu würfeln.
-    pg.PrivateKey? key;
-    for (var i = 0; key == null; i++) {
-      try {
-        key = pg.OpenPGP.generateKey([uid], passphrase, type: pg.KeyType.ecc, curve: pg.Ecc.ed25519) as pg.PrivateKey;
-      } catch (_) {
-        if (i >= 7) rethrow;
-      }
-    }
+    // Ed25519-Seed-Fehler von dart_pg ist in third_party/dart_pg behoben (PATCHES.md)
+    final key = pg.OpenPGP.generateKey([uid], passphrase, type: pg.KeyType.ecc, curve: pg.Ecc.ed25519) as pg.PrivateKey;
     await _writeSecret(accountId, key.armor());
     _armoredSecret[accountId] = key.armor();
     _unlocked.remove(accountId);

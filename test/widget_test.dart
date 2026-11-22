@@ -1634,6 +1634,21 @@ void main() {
       expect(parsed.renderMessage(), contains('-----BEGIN PGP MESSAGE-----'));
     });
 
+    test('Thunderbird-kompatibel: Schlüssel ohne AEAD-Werbung, Mails mit SEIPDv1 statt AEAD', () async {
+      final (a, b, bobPub) = await keys();
+      final pub = pg.OpenPGP.readPublicKey(bobPub) as pg.BaseKey;
+      expect(pub.aeadSupported, isFalse, reason: 'sonst warnt Thunderbird/Betterbird beim Import');
+      expect((pg.OpenPGP.readPrivateKey(b.ownSecretArmored('b1')!) as pg.BaseKey).aeadSupported, isFalse);
+      a.unlock('a1', passA);
+      final plain = MailService.buildMessage(
+          from: _acc(), to: parseAddresses('bob@example.de'), subject: 'x', text: 'y', sevenBit: true);
+      final raw = a.protect(
+          renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: true, sign: true, recipientKeys: [bobPub]);
+      final armored = between(raw, '-----BEGIN PGP MESSAGE-----', '-----END PGP MESSAGE-----');
+      final msg = pg.OpenPGP.readEncryptedMessage(armored) as pg.EncryptedMessage;
+      expect(msg.aeadProtected, isFalse, reason: 'Thunderbird kann SEIPDv2/AEAD nicht lesen');
+    });
+
     test('Bcc wird nie in die Mail geschrieben', () {
       final plain = MailService.buildMessage(
         from: _acc(),

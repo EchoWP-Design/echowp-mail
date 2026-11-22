@@ -2,7 +2,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 5.2** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 5.2.1** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -81,7 +81,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **5.2** | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |
+| **5.2.1** | OpenPGP kompatibel mit Thunderbird/Betterbird: neue Schlüssel ohne AEAD-Werbung (keine Import-Warnung mehr), Mails immer im klassischen Format (SEIPDv1); seltener Fehler bei der Schlüsselerzeugung behoben |
+| 5.2 | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |
 | 5.1 | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |
 | 5.0 | Neues Schreiben-Fenster: unter Windows wie Betterbird (Menü-, Symbol- und Formatleiste, Kontakte-Leiste, CC/BCC), am Handy vereinfacht; formatierte HTML-Mails mit Bildern; Entwürfe speichern |
 | 4.1 | Rechtschreib- und Grammatikprüfung mit Korrekturvorschlägen im Kontextmenü, 17 Sprachen, eigenes Wörterbuch |
@@ -107,7 +108,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 ## Technik
 
-Flutter (Dart), `enough_mail` für IMAP/SMTP, `dart_pg` für OpenPGP. Die Plattformordner (`android/`, `windows/`) entstehen beim Build per `flutter create` und werden von `tool/patch_platforms.py` angepasst (Manifest, Signatur, Push-Dienst; im Windows-Fenster Drag & Drop und die Rechtschreibprüfung aus `tool/windows/`). Versionsnummer in `pubspec.yaml`; Android-versionCode = ABI × 1000 + Build-Nummer.
+Flutter (Dart), `enough_mail` für IMAP/SMTP, `dart_pg` für OpenPGP (gepatchte Kopie in `third_party/dart_pg`, siehe dortige PATCHES.md). Die Plattformordner (`android/`, `windows/`) entstehen beim Build per `flutter create` und werden von `tool/patch_platforms.py` angepasst (Manifest, Signatur, Push-Dienst; im Windows-Fenster Drag & Drop und die Rechtschreibprüfung aus `tool/windows/`). Versionsnummer in `pubspec.yaml`; Android-versionCode = ABI × 1000 + Build-Nummer.
 
 ## Lizenz
 

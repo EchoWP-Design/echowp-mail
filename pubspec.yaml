@@ -1,7 +1,7 @@
 name: echowp_mail
 description: EchoWP-Mail – E-Mail-Client mit KI-Funktionen für Android und Windows.
 publish_to: 'none'
-version: 5.2.0+19
+version: 5.2.1+20
 
 environment:
   sdk: '>=3.4.0 <4.0.0'
@@ -23,8 +23,10 @@ dependencies:
   workmanager: ^0.10.0
   flutter_background_service: ^5.1.0
   android_intent_plus: ^6.0.0
-  # 2.0.0 fest: 2.1 braucht pointycastle 4, enough_mail 2.x aber pointycastle 3
-  dart_pg: 2.0.0
+  # dart_pg 2.0.0 als gepatchte Kopie (third_party/dart_pg/PATCHES.md);
+  # 2.1 bräuchte pointycastle 4, enough_mail 2.x aber pointycastle 3
+  dart_pg:
+    path: third_party/dart_pg
 
 dev_dependencies:
   flutter_test:
