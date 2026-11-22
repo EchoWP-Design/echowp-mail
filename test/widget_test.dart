@@ -1659,6 +1659,147 @@ void main() {
       expect(bad, 0);
     });
 
+    // ------------------------------------------------------------ Gegentests mit echten Programmen
+    // RNP = OpenPGP-Bibliothek von Thunderbird/Betterbird; GnuPG = Mailvelope/Enigmail-Welt.
+    // Laufen nur, wenn die Programme installiert sind (CI installiert sie).
+    bool has(String exe) {
+      if (!Platform.isLinux) return false;
+      try {
+        return Process.runSync('which', [exe]).exitCode == 0;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    Future<String> run(String exe, List<String> args, {String? stdin, String? cwd}) async {
+      final p = await Process.start(exe, args, workingDirectory: cwd);
+      if (stdin != null) p.stdin.write(stdin);
+      await p.stdin.close();
+      final out = await p.stdout.transform(utf8.decoder).join();
+      final err = await p.stderr.transform(utf8.decoder).join();
+      final code = await p.exitCode;
+      if (code != 0) throw Exception('$exe ${args.join(' ')} → $code\n$out\n$err');
+      return '$out\n$err';
+    }
+
+    String pgpMime(String from, String armored) => 'From: $from\r\nTo: test@example.de\r\nSubject: ...\r\n'
+        'MIME-Version: 1.0\r\nContent-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="b1"\r\n\r\n'
+        '--b1\r\nContent-Type: application/pgp-encrypted\r\n\r\nVersion: 1\r\n\r\n'
+        '--b1\r\nContent-Type: application/octet-stream; name="encrypted.asc"\r\n\r\n'
+        '${armored.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n')}\r\n--b1--\r\n';
+
+    const innerMime = 'Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n'
+        'Subject: Gegentest\r\n\r\nHallo aus der Gegenstelle, äöü\r\n-- \r\nGruß\r\n';
+
+    MailItem fromOther(String email) => MailItem(
+          accountId: 'a1',
+          folderPath: 'INBOX',
+          uid: 5,
+          subject: '...',
+          fromName: '',
+          fromEmail: email,
+          date: DateTime(2026, 11, 22),
+          seen: true,
+          flagged: false,
+          hasAttachments: false,
+        );
+
+    Future<AppState> me() async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      await s.pgp.generate('a1', 'Test Konto', 'test@example.de', passA);
+      s.pgp.unlock('a1', passA);
+      return s;
+    }
+
+    test('Gegentest RNP (Betterbird): empfangen und senden, verschlüsselt + signiert', () async {
+      final s = await me();
+      final dir = await Directory.systemTemp.createTemp('rnp');
+      addTearDown(() => dir.delete(recursive: true));
+      final home = '${dir.path}/home';
+      await run('rnpkeys', ['--homedir', home, '--generate-key', '--userid', 'Rnp <rnp@example.de>', '--expert', '--password='],
+          stdin: '22\n');
+      File('${dir.path}/me.asc').writeAsStringSync(s.pgp.ownPublicArmored('a1')!);
+      await run('rnpkeys', ['--homedir', home, '--import', '${dir.path}/me.asc']);
+      final rnpPub = await run('rnpkeys', ['--homedir', home, '--export-key', 'rnp@example.de']);
+      final pubArmor = rnpPub.substring(rnpPub.indexOf('-----BEGIN PGP PUBLIC KEY BLOCK-----'),
+          rnpPub.indexOf('-----END PGP PUBLIC KEY BLOCK-----') + 34);
+      await s.importPublicKey(pubArmor);
+
+      // Betterbird → EchoWP-Mail
+      File('${dir.path}/in.eml').writeAsStringSync(innerMime);
+      await run('rnp', ['--homedir', home, '--sign', '--encrypt', '-r', 'test@example.de', '-u', 'rnp@example.de',
+          '--password=', '--armor', '--output', '${dir.path}/out.asc', '${dir.path}/in.eml']);
+      final raw = pgpMime('rnp@example.de', File('${dir.path}/out.asc').readAsStringSync());
+      final d = s.openPgp(MailDetail.fromMime(fromOther('rnp@example.de'), em.MimeMessage.parseFromText(raw)));
+      expect(d.pgp.decrypted, isTrue, reason: d.pgp.error);
+      expect(d.text, contains('Hallo aus der Gegenstelle, äöü'));
+      expect(d.subject, 'Gegentest');
+      expect(d.pgp.sig, PgpSig.valid, reason: 'RNP schreibt Ablaufzeit 0 = nie');
+
+      // Nur signiert (multipart/signed wie Betterbird)
+      const entity = 'Content-Type: text/plain; charset=utf-8\r\n\r\nNur signiert\r\n-- \r\nGruss\r\n';
+      File('${dir.path}/entity.txt').writeAsStringSync(entity);
+      await run('rnp', ['--homedir', home, '--sign', '--detach', '--armor', '-u', 'rnp@example.de', '--password=',
+          '--output', '${dir.path}/entity.sig', '${dir.path}/entity.txt']);
+      final signed = 'From: rnp@example.de\r\nTo: test@example.de\r\nSubject: s\r\nMIME-Version: 1.0\r\n'
+          'Content-Type: multipart/signed; micalg=pgp-sha256; protocol="application/pgp-signature"; boundary="b2"\r\n\r\n'
+          '--b2\r\n$entity\r\n--b2\r\nContent-Type: application/pgp-signature\r\n\r\n'
+          '${File('${dir.path}/entity.sig').readAsStringSync().replaceAll('\r\n', '\n').replaceAll('\n', '\r\n')}\r\n--b2--\r\n';
+      final v = s.openPgp(MailDetail.fromMime(fromOther('rnp@example.de'), em.MimeMessage.parseFromText(signed)));
+      expect(v.pgp.sig, PgpSig.valid);
+
+      // EchoWP-Mail → Betterbird
+      final plain = MailService.buildMessage(
+          from: _acc(), to: parseAddresses('rnp@example.de'), subject: 'Hin', text: 'Hallo Rnp, äöü', sevenBit: true);
+      final mine = s.pgp.protect(
+          renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: true, sign: true, recipientKeys: [pubArmor]);
+      File('${dir.path}/mine.asc').writeAsStringSync(between(mine, '-----BEGIN PGP MESSAGE-----', '-----END PGP MESSAGE-----'));
+      final res = await run('rnp', ['--homedir', home, '--decrypt', '--password=', '--output', '${dir.path}/mine.eml',
+          '${dir.path}/mine.asc']);
+      expect(res, contains('verified successfully'), reason: res);
+      expect(File('${dir.path}/mine.eml').readAsStringSync(), contains('Subject: Hin'));
+    }, skip: has('rnp') ? false : 'rnp nicht installiert', timeout: const Timeout(Duration(minutes: 2)));
+
+    test('Gegentest GnuPG: Text- und Binärmodus empfangen, senden', () async {
+      final s = await me();
+      final dir = await Directory.systemTemp.createTemp('gpg');
+      addTearDown(() async {
+        try {
+          await Process.run('gpgconf', ['--homedir', '${dir.path}/h', '--kill', 'all']);
+        } catch (_) {}
+        await dir.delete(recursive: true);
+      });
+      final h = '${dir.path}/h';
+      Directory(h).createSync();
+      final base = ['--homedir', h, '--batch', '--yes', '--pinentry-mode', 'loopback', '--passphrase', '',
+          '--trust-model', 'always'];
+      await run('gpg', [...base, '--quick-gen-key', 'Gpg <gpg@example.de>', 'future-default', 'default', 'never']);
+      File('${dir.path}/me.asc').writeAsStringSync(s.pgp.ownPublicArmored('a1')!);
+      await run('gpg', [...base, '--import', '${dir.path}/me.asc']);
+      final pub = (await run('gpg', [...base, '--armor', '--export', 'gpg@example.de']));
+      await s.importPublicKey(pub.substring(0, pub.indexOf('-----END PGP PUBLIC KEY BLOCK-----') + 34));
+      File('${dir.path}/in.eml').writeAsStringSync(innerMime.replaceAll('\r\n', '\n'));
+      for (final text in [true, false]) {
+        await run('gpg', [...base, '--armor', if (text) '--textmode', '--sign', '--encrypt', '-r', 'test@example.de',
+          '-u', 'gpg@example.de', '-o', '${dir.path}/out$text.asc', '${dir.path}/in.eml']);
+        final raw = pgpMime('gpg@example.de', File('${dir.path}/out$text.asc').readAsStringSync());
+        final d = s.openPgp(MailDetail.fromMime(fromOther('gpg@example.de'), em.MimeMessage.parseFromText(raw)));
+        expect(d.pgp.decrypted, isTrue, reason: '${d.pgp.error} (textmode=$text)');
+        expect(d.text, contains('Hallo aus der Gegenstelle, äöü'));
+        expect(d.pgp.sig, PgpSig.valid, reason: 'textmode=$text');
+      }
+      final plain = MailService.buildMessage(
+          from: _acc(), to: parseAddresses('gpg@example.de'), subject: 'Hin', text: 'Hallo Gpg', sevenBit: true);
+      final mine = s.pgp.protect(renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: true, sign: true,
+          recipientKeys: [s.book.byEmail('gpg@example.de')!.pgpKey!]);
+      File('${dir.path}/mine.asc').writeAsStringSync(between(mine, '-----BEGIN PGP MESSAGE-----', '-----END PGP MESSAGE-----'));
+      final res = await run('gpg', [...base, '--status-fd', '1', '-o', '${dir.path}/mine.eml', '--decrypt', '${dir.path}/mine.asc']);
+      expect(res, contains('GOODSIG'), reason: res);
+      expect(File('${dir.path}/mine.eml').readAsStringSync(), contains('Subject: Hin'));
+    }, skip: has('gpg') ? false : 'gpg nicht installiert', timeout: const Timeout(Duration(minutes: 2)));
+
     test('Bcc wird nie in die Mail geschrieben', () {
       final plain = MailService.buildMessage(
         from: _acc(),

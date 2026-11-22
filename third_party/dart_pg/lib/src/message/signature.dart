@@ -4,10 +4,13 @@
 
 library;
 
+import 'dart:typed_data';
+
 import '../common/armor.dart';
 import '../common/helpers.dart';
 import '../enum/armor_type.dart';
 import '../enum/hash_algorithm.dart';
+import '../enum/signature_type.dart';
 import '../message/verification.dart';
 import '../packet/base_packet.dart';
 import '../type/cleartext_message.dart';
@@ -70,7 +73,7 @@ final class Signature implements SignatureInterface {
           try {
             isVerified = packet.verify(
               keyPacket,
-              literalData.signBytes,
+              _signedBytes(packet, literalData), // ECHOWP-PATCH
               time,
             );
           } on Error catch (error) {
@@ -106,4 +109,17 @@ final class Signature implements SignatureInterface {
       time,
     );
   }
+}
+
+/// ECHOWP-PATCH: Textsignaturen (Typ 0x01) werden über kanonischen Text gebildet –
+/// einzelne LF werden dabei zu CRLF (RFC 9580 5.2.1.2). Thunderbird/Betterbird signiert so.
+Uint8List _signedBytes(SignaturePacketInterface packet, LiteralDataInterface data) {
+  final b = data.binary;
+  if (packet.signatureType != SignatureType.text || b.isEmpty) return data.signBytes;
+  final out = <int>[];
+  for (var i = 0; i < b.length; i++) {
+    if (b[i] == 0x0A && (i == 0 || b[i - 1] != 0x0D)) out.add(0x0D);
+    out.add(b[i]);
+  }
+  return Uint8List.fromList(out);
 }

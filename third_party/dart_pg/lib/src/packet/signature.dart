@@ -380,7 +380,16 @@ final class SignaturePacket extends BasePacket
       DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
-  get expirationTime => getSubpacket<SignatureExpirationTime>()?.expirationTime;
+  get expirationTime {
+    // ECHOWP-PATCH: Der Wert ist die Gültigkeitsdauer in Sekunden ab Erstellung, 0 = läuft nie ab
+    // (RFC 9580 5.2.3.18). Vorher als festes Datum gelesen → 0 = 1970 → jede Signatur aus
+    // Thunderbird/Betterbird (RNP schreibt immer 0) galt als abgelaufen.
+    final sub = getSubpacket<SignatureExpirationTime>();
+    if (sub == null) return null;
+    final seconds = sub.expirationTime.millisecondsSinceEpoch ~/ 1000;
+    if (seconds <= 0) return null;
+    return creationTime.add(Duration(seconds: seconds));
+  }
 
   @override
   get keyExpirationTime => getSubpacket<KeyExpirationTime>()?.expiry ?? 0;

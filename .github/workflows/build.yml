@@ -47,6 +47,9 @@ jobs:
         run: python3 tool/patch_platforms.py
       - name: Code prüfen
         run: flutter analyze --no-fatal-infos --no-fatal-warnings lib test
+      - name: OpenPGP-Gegenstellen für Tests (RNP wie Thunderbird/Betterbird, GnuPG)
+        continue-on-error: true
+        run: sudo apt-get update -q && sudo apt-get install -y -q rnp gnupg
       - name: Automatische Tests
         run: flutter test --reporter expanded
       - name: APK bauen (je Prozessortyp, verkleinert)
