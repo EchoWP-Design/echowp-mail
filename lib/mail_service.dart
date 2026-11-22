@@ -389,8 +389,9 @@ class AccountConnection {
         await c.createMailbox(path);
       });
 
-  Future<void> append(String path, em.MimeMessage msg) => _run((c) async {
-        await c.appendMessage(msg, targetMailboxPath: path, flags: [em.MessageFlags.seen]);
+  Future<void> append(String path, em.MimeMessage msg, {List<String> flags = const [em.MessageFlags.seen]}) =>
+      _run((c) async {
+        await c.appendMessage(msg, targetMailboxPath: path, flags: flags);
       });
 
   /// Liefert (uidNext, neue ungelesene Mails seit [lastUidNext]) für einen Ordner.
@@ -500,14 +501,39 @@ class MailService {
     List<(String, Uint8List)> attachments = const [],
     String? inReplyTo,
     String? references,
+    String? html,
+    List<(String cid, String name, String mimeType, Uint8List bytes)> inlineImages = const [],
   }) {
-    final b = em.MessageBuilder();
+    final b = html == null
+        ? em.MessageBuilder()
+        : (attachments.isEmpty
+            ? em.MessageBuilder.prepareMessageWithMediaType(em.MediaSubtype.multipartAlternative)
+            : em.MessageBuilder.prepareMultipartMixedMessage());
     b.from = [em.MailAddress(from.name.isEmpty ? null : from.name, from.email)];
     b.to = to;
     if (cc.isNotEmpty) b.cc = cc;
     if (bcc.isNotEmpty) b.bcc = bcc;
     b.subject = stripLineBreaks(subject);
-    b.addTextPlain(text);
+    if (html == null) {
+      b.addTextPlain(text);
+    } else {
+      // Text + HTML (multipart/alternative), Bilder im HTML als multipart/related mit Content-ID
+      final alt = attachments.isEmpty ? b : b.addPart(mediaSubtype: em.MediaSubtype.multipartAlternative);
+      alt.addTextPlain(text);
+      if (inlineImages.isEmpty) {
+        alt.addTextHtml(html);
+      } else {
+        final rel = alt.addPart(mediaSubtype: em.MediaSubtype.multipartRelated);
+        rel.addTextHtml(html);
+        for (final (cid, name, mime, bytes) in inlineImages) {
+          final safe = safeFileName(name);
+          final part = rel.addBinary(bytes, em.MediaType.fromText(mime),
+              filename: safe,
+              disposition: em.ContentDispositionHeader.from(em.ContentDisposition.inline, filename: safe));
+          part.setHeader('Content-ID', '<$cid>');
+        }
+      }
+    }
     for (final (name, bytes) in attachments) {
       final safe = safeFileName(name);
       b.addBinary(bytes, em.MediaType.guessFromFileName(safe), filename: safe);

@@ -12,7 +12,10 @@ class AddressField extends StatefulWidget {
   final String label;
   final bool autofocus;
   final Widget? suffixIcon;
-  const AddressField({super.key, required this.controller, required this.label, this.autofocus = false, this.suffixIcon});
+  /// Rahmen (Standard: keiner, wie bisher am Handy).
+  final InputBorder? border;
+  const AddressField(
+      {super.key, required this.controller, required this.label, this.autofocus = false, this.suffixIcon, this.border});
 
   /// Text nach dem letzten Komma/Semikolon (die gerade getippte Adresse).
   static String currentToken(String text) {
@@ -65,7 +68,12 @@ class _AddressFieldState extends State<AddressField> {
         autofocus: widget.autofocus,
         keyboardType: TextInputType.emailAddress,
         onSubmitted: (_) => onSubmitted(),
-        decoration: InputDecoration(labelText: widget.label, border: InputBorder.none, suffixIcon: widget.suffixIcon),
+        decoration: InputDecoration(
+          labelText: widget.label,
+          border: widget.border ?? InputBorder.none,
+          isDense: widget.border != null,
+          suffixIcon: widget.suffixIcon,
+        ),
       ),
       optionsViewBuilder: (context, onSelected, options) {
         final list = options.toList();

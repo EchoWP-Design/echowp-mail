@@ -10,6 +10,7 @@ import 'package:echowp_mail/mail_service.dart';
 import 'package:echowp_mail/models.dart';
 import 'package:echowp_mail/new_mail.dart';
 import 'package:echowp_mail/notifications.dart';
+import 'package:echowp_mail/rich_text.dart';
 import 'package:echowp_mail/screens/compose_screen.dart';
 import 'package:echowp_mail/screens/contacts_screen.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
@@ -1341,6 +1342,201 @@ void main() {
       expect(b.spellCheck, isTrue);
       expect(AppSettings.fromJson(const {}).spellLang, 'de-DE');
       expect(spellLanguages.map((l) => l.tag), containsAll(['de-DE', 'en-US', 'en-GB', 'es-ES', 'fr-FR', 'it-IT', 'da-DK', 'sv-SE']));
+    });
+  });
+
+  group('Formatierte Mails (Editor)', () {
+    RichMailController ctl(String text, int a, int b) =>
+        RichMailController(text: text)..selection = TextSelection(baseOffset: a, extentOffset: b);
+
+    test('Fett/Kursiv auf Auswahl, Formatierung für das nächste Wort', () {
+      final c = ctl('Hallo Welt', 0, 5)..toggleBold();
+      expect(c.styles.take(5).every((s) => s.bold), isTrue);
+      expect(c.styles[6].bold, isFalse);
+      c.toggleBold();
+      expect(c.styles.any((s) => s.bold), isFalse, reason: 'zweites Mal schaltet aus');
+
+      // Schreibmarke ohne Auswahl: nächster Text wird kursiv
+      c.selection = const TextSelection.collapsed(offset: 10);
+      c.toggleItalic();
+      c.value = const TextEditingValue(text: 'Hallo Welt!!', selection: TextSelection.collapsed(offset: 12));
+      expect(c.styles[10].italic, isTrue);
+      expect(c.styles[9].italic, isFalse);
+      expect(c.hasFormatting, isTrue);
+    });
+
+    test('Aufzählung, Nummerierung, Einzug und Eingabetaste in Listen', () {
+      final c = ctl('Eins\nZwei', 0, 9)..toggleBullets();
+      expect(c.text, '${bulletPrefix}Eins\n${bulletPrefix}Zwei');
+      c.toggleNumbering();
+      expect(c.text, '1. Eins\n2. Zwei');
+      // Eingabetaste am Ende → nächste Nummer
+      final t = c.text;
+      c.value = TextEditingValue(text: '$t\n', selection: TextSelection.collapsed(offset: t.length + 1));
+      expect(c.text, '$t\n3. ');
+      // leerer Punkt + Eingabetaste → Liste endet
+      final t2 = c.text;
+      c.value = TextEditingValue(text: '$t2\n', selection: TextSelection.collapsed(offset: t2.length + 1));
+      expect(c.text, '$t\n', reason: 'Präfix entfernt, Schreibmarke in leerer Zeile');
+      c.selection = const TextSelection.collapsed(offset: 0);
+      c.indent();
+      expect(c.text.startsWith('${indentUnit}1. Eins'), isTrue);
+      c.outdent();
+      expect(c.text.startsWith('1. Eins'), isTrue);
+      expect(c.styles.length, c.text.length);
+    });
+
+    test('HTML: Formate, Listen, Überschrift, Bild mit Content-ID; Text-Teil ohne Formatierung', () {
+      final c = ctl('Titel\nfett & normal\nA\nB\n', 0, 0);
+      c.setBlock(BlockFormat.h1);
+      c.selection = const TextSelection(baseOffset: 6, extentOffset: 10);
+      c.toggleBold();
+      c.selection = const TextSelection(baseOffset: 20, extentOffset: 23);
+      c.toggleBullets();
+      c.selection = TextSelection.collapsed(offset: c.text.length);
+      c.insertImage('foto.png', Uint8List.fromList([1, 2, 3]));
+      c.align = TextAlign.center;
+      final (html, images) = c.toHtml();
+      expect(html, contains('<h1>Titel</h1>'));
+      expect(html, contains('<b>fett</b> &amp; normal'));
+      expect(html, contains('<ul><li>A</li><li>B</li></ul>'));
+      expect(images.single.image.name, 'foto.png');
+      expect(images.single.image.mimeType, 'image/png');
+      expect(html, contains('src="cid:${images.single.cid}"'));
+      expect(html, contains('text-align:center'));
+      expect(c.toPlainText(), 'Titel\nfett & normal\n• A\n• B\n[Bild: foto.png]');
+    });
+
+    test('Mail mit HTML, eingebettetem Bild und Anhang wird korrekt aufgebaut', () {
+      final msg = MailService.buildMessage(
+        from: _acc(),
+        to: parseAddresses('max@example.de'),
+        subject: 'Test',
+        text: 'Hallo',
+        html: '<b>Hallo</b><img src="cid:x1@echowp.mail">',
+        inlineImages: [('x1@echowp.mail', 'bild.png', 'image/png', Uint8List.fromList([1, 2, 3]))],
+        attachments: [('doc.pdf', Uint8List.fromList([4, 5]))],
+      );
+      final raw = msg.renderMessage();
+      expect(raw, contains('multipart/mixed'));
+      expect(raw, contains('multipart/alternative'));
+      expect(raw, contains('multipart/related'));
+      expect(raw, contains('text/html'));
+      expect(raw, contains('Content-ID: <x1@echowp.mail>'));
+      expect(raw, contains('doc.pdf'));
+    });
+
+    test('Rechtschreibmarkierung im Editor: Grammatik blau, Rechtschreibung rot', () async {
+      final c = RichMailController(text: 'Das sind ein Fehlre');
+      c.spell = MailSpellChecker(lang: 'de-DE', offline: _FakeSpeller({'Fehlre': ['Fehler']}));
+      await c.spell!.fetch(c.checkText);
+      expect(c.spell!.issues.single.word, 'Fehlre');
+    });
+
+    testWidgets('Windows-Ansicht: Menü, Symbolleiste, CC/BCC, Kontakte-Leiste, Formatleiste', (tester) async {
+      tester.view.physicalSize = const Size(1200, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      ComposeScreen.desktopLayout = true;
+      addTearDown(() => ComposeScreen.desktopLayout = null);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.settings.grammarCheck = false;
+      s.book.contacts = [Contact(name: 'Anna Beispiel', emails: ['anna@example.de'])];
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      for (final m in ['Datei', 'Bearbeiten', 'Ansicht', 'Einfügen', 'Format', 'Optionen', 'Extras', 'Hilfe']) {
+        expect(find.text(m), findsOneWidget, reason: 'Menü $m');
+      }
+      expect(find.byKey(const ValueKey('compose-send')), findsOneWidget);
+      expect(find.text('Rechtschr.'), findsOneWidget);
+      expect(find.text('Speichern'), findsOneWidget);
+      expect(find.text('Anhängen'), findsOneWidget);
+      expect(find.text('Verfassen: (kein Betreff)'), findsOneWidget);
+
+      // CC/BCC einblenden
+      expect(find.widgetWithText(TextField, 'Cc'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('show-cc')));
+      await tester.pump();
+      expect(find.widgetWithText(TextField, 'Cc'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('show-bcc')));
+      await tester.pump();
+      expect(find.widgetWithText(TextField, 'Bcc'), findsOneWidget);
+
+      // Kontakte-Leiste: Antippen übernimmt Empfänger
+      await tester.tap(find.byKey(const ValueKey('compose-contacts')));
+      await tester.pump();
+      await tester.tap(find.text('Anna Beispiel'));
+      await tester.pump();
+      final to = tester.widget<TextField>(find.widgetWithText(TextField, 'An')).controller!.text;
+      expect(to, 'Anna Beispiel <anna@example.de>, ');
+
+      // Formatleiste: Fett an, dann schreiben → fett
+      expect(find.byKey(const ValueKey('fmt-block')), findsOneWidget);
+      expect(find.byKey(const ValueKey('fmt-font')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('compose-body')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('fmt-bold')));
+      await tester.pump();
+      await tester.enterText(find.byKey(const ValueKey('compose-body')), 'Wichtig');
+      await tester.pump();
+      final body = tester.widget<TextField>(find.byKey(const ValueKey('compose-body'))).controller! as RichMailController;
+      expect(body.styles.every((st) => st.bold), isTrue);
+
+      // Menü öffnen
+      await tester.tap(find.text('Format'));
+      await tester.pump();
+      expect(find.text('Formatierung entfernen'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await _drain(tester);
+    });
+
+    testWidgets('Windows-Ansicht ohne Überlauf auch im schmalen Fenster', (tester) async {
+      tester.view.physicalSize = const Size(820, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      ComposeScreen.desktopLayout = true;
+      addTearDown(() => ComposeScreen.desktopLayout = null);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.settings.grammarCheck = false;
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('compose-contacts')));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      await _drain(tester);
+    });
+
+    testWidgets('Handy-Ansicht vereinfacht: kompakte Formatleiste, Kontakte-Auswahl', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      ComposeScreen.desktopLayout = false;
+      addTearDown(() => ComposeScreen.desktopLayout = null);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.settings.grammarCheck = false;
+      s.book.contacts = [Contact(name: 'Bernd', emails: ['b@example.de'])];
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      expect(find.text('Datei'), findsNothing, reason: 'kein Menü am Handy');
+      expect(find.byKey(const ValueKey('fmt-block')), findsNothing, reason: 'kein Absatzformat am Handy');
+      expect(find.byKey(const ValueKey('fmt-bold')), findsOneWidget);
+      await tester.tap(find.byTooltip('Kontakte'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.tap(find.text('Bernd'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      final to = tester.widget<TextField>(find.widgetWithText(TextField, 'An')).controller!.text;
+      expect(to, 'Bernd <b@example.de>, ');
+      expect(tester.takeException(), isNull);
+      await _drain(tester);
     });
   });
 }

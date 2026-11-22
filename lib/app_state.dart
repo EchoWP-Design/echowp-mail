@@ -699,11 +699,15 @@ class AppState extends ChangeNotifier {
     required String body,
     List<(String, Uint8List)> attachments = const [],
     MailDetail? replyTo,
+    String? html,
+    List<(String, String, String, Uint8List)> inlineImages = const [],
   }) async {
     final acc = account(accountId)!;
     final toList = parseAddresses(to);
     if (toList.isEmpty) throw const FormatException('Bitte mindestens einen Empfänger angeben.');
     final msg = MailService.buildMessage(
+      html: html,
+      inlineImages: inlineImages,
       from: acc,
       to: toList,
       cc: parseAddresses(cc),
@@ -734,6 +738,36 @@ class AppState extends ChangeNotifier {
             .setFlag(replyTo.item.folderPath, [replyTo.item.uid], em.MessageFlags.answered, true);
       } catch (_) {}
     }
+  }
+
+  /// Entwurf im Ordner „Entwürfe“ des Kontos ablegen. Gibt den Ordnernamen zurück.
+  Future<String> saveDraft({
+    required String accountId,
+    String to = '',
+    String cc = '',
+    String bcc = '',
+    required String subject,
+    required String body,
+    List<(String, Uint8List)> attachments = const [],
+    String? html,
+    List<(String, String, String, Uint8List)> inlineImages = const [],
+  }) async {
+    final acc = account(accountId)!;
+    final drafts = await ensureRoleFolder(accountId, 'drafts');
+    if (drafts == null) throw const FormatException('Kein Ordner „Entwürfe“ gefunden.');
+    final msg = MailService.buildMessage(
+      from: acc,
+      to: to.trim().isEmpty ? const [] : parseAddresses(to),
+      cc: parseAddresses(cc),
+      bcc: parseAddresses(bcc),
+      subject: subject,
+      text: body,
+      attachments: attachments,
+      html: html,
+      inlineImages: inlineImages,
+    );
+    await mail.conn(accountId).append(drafts.path, msg, flags: const [em.MessageFlags.seen, em.MessageFlags.draft]);
+    return drafts.name;
   }
 
   // ---------------------------------------------------------------- Adressbuch
