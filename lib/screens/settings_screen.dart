@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import '../spell.dart';
 import '../widgets/common.dart';
 import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
@@ -128,6 +129,70 @@ class SettingsScreen extends StatelessWidget {
           value: st.notifications,
           onChanged: (v) => s.updateSettings((x) => x.notifications = v),
         ),
+        header('Rechtschreibung & Grammatik'),
+        SwitchListTile(
+          secondary: const Icon(Icons.spellcheck),
+          title: const Text('Rechtschreibprüfung beim Schreiben'),
+          subtitle: const Text('Rot unterstrichen; Rechtsklick bzw. langes Drücken zeigt Vorschläge'),
+          value: st.spellCheck,
+          onChanged: (v) => s.updateSettings((x) => x.spellCheck = v),
+        ),
+        ListTile(
+          key: const ValueKey('settings-spell-lang'),
+          leading: const Icon(Icons.translate),
+          title: const Text('Standardsprache'),
+          subtitle: Text('${spellLanguage(st.spellLang).name} – in jeder Mail oben rechts umschaltbar'),
+          onTap: () async {
+            final offline = await SystemSpeller.instance.offlineLanguages();
+            if (!context.mounted) return;
+            final v = await showDialog<String>(
+              context: context,
+              builder: (ctx) => SimpleDialog(
+                title: const Text('Sprache der Prüfung'),
+                children: [
+                  for (final l in spellLanguages)
+                    SimpleDialogOption(
+                      onPressed: () => Navigator.pop(ctx, l.tag),
+                      child: Row(children: [
+                        Expanded(
+                          child: Text(l.name,
+                              style: TextStyle(fontWeight: l.tag == st.spellLang ? FontWeight.bold : null)),
+                        ),
+                        if (offline != null)
+                          Text(offline.contains(l.tag.toLowerCase()) ? 'offline' : 'nur online',
+                              style: theme.textTheme.bodySmall),
+                      ]),
+                    ),
+                ],
+              ),
+            );
+            if (v != null) s.updateSettings((x) => x.spellLang = v);
+          },
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.rule),
+          title: const Text('Grammatik online prüfen (LanguageTool)'),
+          subtitle: const Text('Nach einer Tipp-Pause wird der Mailtext (ohne zitierte Mail) an den kostenlosen '
+              'Dienst LanguageTool gesendet. Für vertrauliche Inhalte ausschalten.'),
+          value: st.grammarCheck,
+          onChanged: (v) => s.updateSettings((x) => x.grammarCheck = v),
+        ),
+        ListTile(
+          leading: const Icon(Icons.menu_book_outlined),
+          title: const Text('Eigenes Wörterbuch leeren'),
+          subtitle: const Text('Wörter, die über „Zum Wörterbuch hinzufügen“ aufgenommen wurden'),
+          onTap: () async {
+            await MailSpellChecker.clearUserWords();
+            s.toast('Eigenes Wörterbuch geleert');
+          },
+        ),
+        if (Platform.isWindows)
+          const ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('Offline-Wörterbücher (Windows)'),
+            subtitle: Text('Fehlt eine Sprache, in Windows unter Einstellungen → Zeit und Sprache → Sprache & Region '
+                'die Sprache hinzufügen. Bis dahin prüft LanguageTool auch die Rechtschreibung (wenn eingeschaltet).'),
+          ),
         header('KI (Claude)'),
         ListTile(
           leading: const Icon(Icons.key),
@@ -209,7 +274,7 @@ class SettingsScreen extends StatelessWidget {
         header('Über'),
         const ListTile(
           leading: Icon(Icons.info_outline),
-          title: Text('EchoWP-Mail 4.0'),
+          title: Text('EchoWP-Mail 4.1'),
           subtitle: Text('Eigener Mail-Client für Android und Windows'),
         ),
         const SizedBox(height: 32),

@@ -301,6 +301,9 @@ class AppSettings {
   bool notifications;
   String aiModel;
   String aiKey; // wird separat und verschlüsselt gespeichert
+  bool spellCheck;
+  bool grammarCheck;
+  String spellLang;
 
   AppSettings({
     this.themeMode = ThemeMode.system,
@@ -310,6 +313,9 @@ class AppSettings {
     this.notifications = true,
     this.aiModel = 'claude-haiku-5-5',
     this.aiKey = '',
+    this.spellCheck = true,
+    this.grammarCheck = true,
+    this.spellLang = 'de-DE',
   });
 
   Map<String, dynamic> toJson() => {
@@ -319,6 +325,9 @@ class AppSettings {
         'pollMinutes': pollMinutes,
         'notifications': notifications,
         'aiModel': aiModel,
+        'spellCheck': spellCheck,
+        'grammarCheck': grammarCheck,
+        'spellLang': spellLang,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -328,5 +337,8 @@ class AppSettings {
         pollMinutes: (j['pollMinutes'] as num?)?.toInt() ?? 5,
         notifications: j['notifications'] as bool? ?? true,
         aiModel: j['aiModel'] as String? ?? 'claude-haiku-5-5',
+        spellCheck: j['spellCheck'] as bool? ?? true,
+        grammarCheck: j['grammarCheck'] as bool? ?? true,
+        spellLang: j['spellLang'] as String? ?? 'de-DE',
       );
 }

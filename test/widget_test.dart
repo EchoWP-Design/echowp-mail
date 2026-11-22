@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:echowp_mail/app_state.dart';
@@ -13,6 +14,7 @@ import 'package:echowp_mail/screens/compose_screen.dart';
 import 'package:echowp_mail/screens/contacts_screen.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
 import 'package:echowp_mail/screens/message_screen.dart';
+import 'package:echowp_mail/spell.dart';
 import 'package:echowp_mail/theme.dart';
 import 'package:echowp_mail/widgets/address_field.dart';
 import 'package:echowp_mail/widgets/common.dart';
@@ -1154,6 +1156,188 @@ void main() {
       await _drain(tester);
     });
   });
+
+  group('Rechtschreibung & Grammatik', () {
+    test('Fundstellen wandern bei Textänderungen mit', () {
+      const old = 'Hallo Wellt, wie gehts';
+      final issues = [
+        const SpellIssue(6, 11, 'Wellt', ['Welt']),
+        const SpellIssue(17, 22, 'gehts', ["geht's"], grammar: true),
+      ];
+      // vorne eingefügt → beide verschoben
+      var r = shiftIssues(issues, old, 'Oh, $old');
+      expect(r.map((i) => i.start), [10, 21]);
+      // im Wort geändert → diese Fundstelle entfällt
+      r = shiftIssues(issues, old, 'Hallo Welt, wie gehts');
+      expect(r.map((i) => i.word), ['gehts']);
+      expect(r.single.start, 16);
+    });
+
+    test('Zusammenführen: offline zuerst, Online-Tippfehler nur ohne Offline-Wörterbuch', () {
+      const off = [SpellIssue(0, 4, 'Tset', ['Test'])];
+      const on = [
+        SpellIssue(0, 4, 'Tset', ['Test']),
+        SpellIssue(10, 14, 'Wort', ['Worte'], grammar: true, message: 'Mehrzahl?'),
+        SpellIssue(20, 24, 'Fhler', ['Fehler']),
+      ];
+      final a = mergeIssues(off, on, offlineAvailable: true);
+      expect(a.map((i) => i.start), [0, 10]);
+      final b = mergeIssues(const [], on, offlineAvailable: false);
+      expect(b.map((i) => i.start), [0, 10, 20]);
+    });
+
+    test('LanguageTool-Antwort wird gelesen', () {
+      const text = 'Das sind ein Test.';
+      final json = jsonEncode({
+        'matches': [
+          {
+            'message': 'Möglicherweise passen das Verb und das Subjekt nicht zusammen.',
+            'shortMessage': 'Kongruenz',
+            'offset': 4,
+            'length': 4,
+            'replacements': [
+              {'value': 'ist'},
+            ],
+            'rule': {'id': 'X', 'issueType': 'grammar', 'category': {'id': 'GRAMMAR'}},
+          },
+          {
+            'message': 'Tippfehler',
+            'offset': 13,
+            'length': 4,
+            'replacements': [],
+            'rule': {'id': 'Y', 'issueType': 'misspelling', 'category': {'id': 'TYPOS'}},
+          },
+          {'message': 'außerhalb', 'offset': 99, 'length': 3},
+        ],
+      });
+      final r = GrammarChecker.parse(json, text);
+      expect(r.length, 2);
+      expect(r[0].word, 'sind');
+      expect(r[0].grammar, isTrue);
+      expect(r[0].message, 'Kongruenz');
+      expect(r[0].suggestions, ['ist']);
+      expect(r[1].grammar, isFalse);
+    });
+
+    testWidgets('Grammatik kommt nach Tipp-Pause, ohne zitierte Mail, und wird gemeldet', (tester) async {
+      final sent = <String>[];
+      var updates = 0;
+      final c = MailSpellChecker(
+        lang: 'de-DE',
+        grammar: true,
+        offline: _FakeSpeller({'Fehlre': ['Fehler']}),
+        online: GrammarChecker(post: (form) async {
+          sent.add(form['text']!);
+          expect(form['language'], 'de-DE');
+          final i = form['text']!.indexOf('sind');
+          return jsonEncode({
+            'matches': [
+              if (i >= 0)
+                {'message': 'Kongruenz', 'offset': i, 'length': 4, 'replacements': [{'value': 'ist'}],
+                  'rule': {'issueType': 'grammar'}},
+            ],
+          });
+        }),
+        checkLength: (t) => t.indexOf('---'),
+        onUpdate: () => updates++,
+      );
+      const text = 'Das sind ein Fehlre.\n---\nzitierte Mail mit Fehlre';
+      final spans = await c.fetch(text);
+      expect(spans!.map((s) => s.range.start), [13], reason: 'offline sofort, Zitat nicht geprüft');
+      expect(sent, isEmpty);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(sent, ['Das sind ein Fehlre.\n']);
+      expect(updates, 1);
+      expect(c.issues.map((i) => i.word), ['sind', 'Fehlre']);
+      expect(c.issueAt(5)!.message, 'Kongruenz');
+
+      c.ignore('sind');
+      expect(c.issues.map((i) => i.word), ['Fehlre']);
+
+      // Gleicher Text → keine neue Anfrage
+      await c.fetch(text);
+      await tester.pump(const Duration(seconds: 5));
+      expect(sent.length, 1);
+
+      // Grammatik aus → nie online
+      final c2 = MailSpellChecker(
+        lang: 'de-DE',
+        offline: _FakeSpeller(const {}),
+        online: GrammarChecker(post: (form) async {
+          fail('darf nicht senden');
+        }),
+      );
+      await c2.fetch('Das sind ein Test');
+      await tester.pump(const Duration(seconds: 5));
+      c.dispose();
+      c2.dispose();
+    });
+
+    testWidgets('Zu viele Anfragen → Pause mit Hinweis', (tester) async {
+      final c = MailSpellChecker(
+        lang: 'en-GB',
+        grammar: true,
+        offline: _FakeSpeller(const {}),
+        online: GrammarChecker(post: (form) async => throw RateLimited()),
+      );
+      await c.fetch('This are a test');
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(c.grammarError, contains('pausiert'));
+      c.dispose();
+    });
+
+    testWidgets('Kontextmenü: Vorschlag ersetzt das Wort, Wörterbuch merkt es', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final ctrl = TextEditingController(text: 'Das ist ein Fehlre');
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: TextField(controller: ctrl))));
+      final ed = tester.state<EditableTextState>(find.byType(EditableText));
+      final c = MailSpellChecker(lang: 'de-DE', offline: _FakeSpeller({'Fehlre': ['Fehler', 'Fehlern']}));
+      await c.fetch(ctrl.text);
+      final issue = c.issueAt(14)!;
+      final items = spellMenuItems(ed, c, issue);
+      expect(items.map((i) => i.label), ['→ Fehler', '→ Fehlern', 'Ignorieren', 'Zum Wörterbuch hinzufügen']);
+      items.first.onPressed!();
+      await tester.pump();
+      expect(ctrl.text, 'Das ist ein Fehler');
+
+      await c.addWord('Fehlre');
+      expect(MailSpellChecker.userWords, contains('fehlre'));
+      await c.fetch('Noch ein Fehlre');
+      expect(c.issues, isEmpty);
+      await MailSpellChecker.clearUserWords();
+      c.dispose();
+    });
+
+    testWidgets('Schreiben: Sprache je Mail umschaltbar, Standard aus den Einstellungen', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.settings.spellLang = 'fr-FR';
+      s.settings.grammarCheck = false;
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      expect(find.text('FR'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('spell-lang')));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('Englisch (UK)').last);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('EN-GB'), findsOneWidget);
+      expect(s.settings.spellLang, 'fr-FR', reason: 'nur diese Mail');
+      await _drain(tester);
+    });
+
+    test('Einstellungen werden gespeichert', () {
+      final a = AppSettings(spellLang: 'sv-SE', grammarCheck: false);
+      final b = AppSettings.fromJson(a.toJson());
+      expect(b.spellLang, 'sv-SE');
+      expect(b.grammarCheck, isFalse);
+      expect(b.spellCheck, isTrue);
+      expect(AppSettings.fromJson(const {}).spellLang, 'de-DE');
+      expect(spellLanguages.map((l) => l.tag), containsAll(['de-DE', 'en-US', 'en-GB', 'es-ES', 'fr-FR', 'it-IT', 'da-DK', 'sv-SE']));
+    });
+  });
 }
 
 /// Nachgebildeter, langsamer Server.
@@ -1168,4 +1352,16 @@ class _SlowConn extends AccountConnection {
 
   @override
   Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
+}
+
+/// Nachgebildetes Offline-Wörterbuch: meldet die angegebenen Wörter als falsch.
+class _FakeSpeller implements OfflineSpeller {
+  final Map<String, List<String>> wrong;
+  _FakeSpeller(this.wrong);
+
+  @override
+  Future<List<SpellIssue>?> check(String lang, String text) async => [
+        for (final e in wrong.entries)
+          for (final m in RegExp(RegExp.escape(e.key)).allMatches(text)) SpellIssue(m.start, m.end, e.key, e.value),
+      ]..sort((a, b) => a.start.compareTo(b.start));
 }

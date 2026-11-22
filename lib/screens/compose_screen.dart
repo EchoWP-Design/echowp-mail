@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../file_drop.dart';
 import '../mail_service.dart';
+import '../spell.dart';
 import '../widgets/address_field.dart';
 import '../widgets/common.dart';
 
@@ -48,6 +49,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _busy = false;
   final List<(String, Uint8List)> _attachments = [];
 
+  // Rechtschreib- und Grammatikprüfung (Sprache je Mail umschaltbar)
+  late final MailSpellChecker _bodySpell;
+  late final MailSpellChecker _subjectSpell;
+  int _spellVersion = 0;
+  bool _spellOn = true;
+
   @override
   void initState() {
     super.initState();
@@ -61,6 +68,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (widget.initialTo != null) _to.text = widget.initialTo!;
     _attachments.addAll(widget.initialAttachments);
     FileDrop.listen(_onDrop);
+    final st = s.settings;
+    _spellOn = st.spellCheck;
+    _bodySpell = MailSpellChecker(
+      lang: st.spellLang,
+      grammar: st.grammarCheck,
+      checkLength: (t) => t.indexOf(_quoteMarker),
+      onUpdate: _spellChanged,
+    );
+    _subjectSpell = MailSpellChecker(lang: st.spellLang, onUpdate: _spellChanged);
+    MailSpellChecker.loadUserWords().then((_) => _spellChanged(), onError: (_) {});
 
     if (o != null) {
       final subj = o.item.subject;
@@ -140,11 +157,66 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void dispose() {
     FileDrop.unlisten(_onDrop);
+    _bodySpell.dispose();
+    _subjectSpell.dispose();
     _viewHold.releaseView();
     for (final c in [_to, _cc, _bcc, _subject, _body]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  /// Neue Prüfergebnisse (z. B. Grammatik) → Textfelder neu einfärben.
+  void _spellChanged() {
+    if (mounted) setState(() => _spellVersion++);
+  }
+
+  void _setSpellLang(String tag) {
+    for (final c in [_bodySpell, _subjectSpell]) {
+      c
+        ..lang = tag
+        ..reset();
+    }
+    _spellChanged();
+  }
+
+  SpellCheckConfiguration _spellConfig(MailSpellChecker c) => _spellOn
+      ? SpellCheckConfiguration(
+          spellCheckService: SpellView(c, _spellVersion),
+          misspelledTextStyle: TextField.materialMisspelledTextStyle,
+          spellCheckSuggestionsToolbarBuilder: TextField.defaultSpellCheckSuggestionsToolbarBuilder,
+        )
+      : const SpellCheckConfiguration.disabled();
+
+  Widget _langButton() {
+    final cur = spellLanguage(_bodySpell.lang);
+    final err = _bodySpell.grammarError;
+    return PopupMenuButton<String>(
+      key: const ValueKey('spell-lang'),
+      tooltip: err ?? 'Sprache der Rechtschreibprüfung: ${cur.name}',
+      onSelected: (v) {
+        if (v == 'off') {
+          setState(() => _spellOn = !_spellOn);
+        } else {
+          _setSpellLang(v);
+        }
+      },
+      itemBuilder: (_) => [
+        for (final l in spellLanguages)
+          CheckedPopupMenuItem(value: l.tag, checked: l.tag == cur.tag, child: Text(l.name)),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'off', child: Text(_spellOn ? 'Prüfung für diese Mail aus' : 'Prüfung einschalten')),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(_spellOn ? Icons.spellcheck : Icons.spellcheck_outlined,
+              size: 20, color: err != null ? Theme.of(context).colorScheme.error : null),
+          const SizedBox(width: 2),
+          Text(_spellOn ? cur.short : 'AUS', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
   }
 
   /// Dateien aus dem Explorer ins Fenster gezogen (Windows).
@@ -264,6 +336,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          _langButton(),
           IconButton(tooltip: 'Anhang', icon: const Icon(Icons.attach_file), onPressed: _busy ? null : _attach),
           IconButton(
               tooltip: 'Mit KI überarbeiten',
@@ -312,6 +385,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
               TextField(
                 controller: _subject,
                 textCapitalization: TextCapitalization.sentences,
+                spellCheckConfiguration: _spellConfig(_subjectSpell),
+                contextMenuBuilder: (c, ed) => spellContextMenu(c, ed, _spellOn ? _subjectSpell : null),
                 decoration: const InputDecoration(labelText: 'Betreff', border: InputBorder.none),
               ),
               const Divider(),
@@ -349,6 +424,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 minLines: 12,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
+                spellCheckConfiguration: _spellConfig(_bodySpell),
+                contextMenuBuilder: (c, ed) => spellContextMenu(c, ed, _spellOn ? _bodySpell : null),
                 decoration: const InputDecoration(hintText: 'Nachricht', border: InputBorder.none),
               ),
             ],

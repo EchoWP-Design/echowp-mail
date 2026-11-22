@@ -2,7 +2,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 4.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 4.1** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -35,6 +35,12 @@ Updates werden einfach über die vorhandene App installiert (gleiche Signatur, s
 - Windows: **Anhänge per Drag & Drop** – Datei ins Schreiben-Fenster ziehen; auf das Hauptfenster gezogen öffnet sich eine neue Mail
 - Breite Bildschirme: zwei- bzw. dreispaltige Ansicht mit verschiebbarem Trenner
 
+### Rechtschreibung und Grammatik
+- Prüfung beim Schreiben (Betreff und Text): Rechtschreibung offline über das Wörterbuch von Android bzw. Windows, Grammatik und Stil zusätzlich online über [LanguageTool](https://languagetool.org) (abschaltbar)
+- Fehler rot unterstrichen; Rechtsklick bzw. langes Drücken zeigt Vorschläge, „Ignorieren“ und „Zum Wörterbuch hinzufügen“
+- Sprache je Mail umschaltbar (Knopf oben rechts), Standardsprache in den Einstellungen: Deutsch (auch Schweiz), Englisch (US/UK), Spanisch, Französisch, Italienisch, Niederländisch, Portugiesisch, Dänisch, Schwedisch, Polnisch, Katalanisch, Griechisch, Russisch, Ukrainisch
+- Datenschutz: an LanguageTool geht nur der eigene Mailtext ohne zitierte Originalmail, erst nach einer Tipp-Pause
+
 ### Adressbuch
 - **Gedächtnis**: Empfänger gesendeter Mails werden gemerkt und beim Tippen in An/Cc/Bcc vorgeschlagen
 - **Adressbuch** mit Name, Firma, mehreren E-Mail-Adressen, Telefon, Mobil, Anschrift, Geburtstag, Notizen
@@ -60,7 +66,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **4.0** | „Alle Posteingänge“ heißt „Aktuell“, Mails in der Farbe ihres Postfachs; Abruf mit Zeitgrenze (Anzeige max. 5 s, hängende Verbindungen werden nach 60 s neu aufgebaut); Esc schließt nur Adressvorschläge |
+| **4.1** | Rechtschreib- und Grammatikprüfung mit Korrekturvorschlägen im Kontextmenü, 17 Sprachen, eigenes Wörterbuch |
+| 4.0 | „Alle Posteingänge“ heißt „Aktuell“, Mails in der Farbe ihres Postfachs; Abruf mit Zeitgrenze (Anzeige max. 5 s, hängende Verbindungen werden nach 60 s neu aufgebaut); Esc schließt nur Adressvorschläge |
 | 3.5 | Adressbuch, Adress-Gedächtnis mit Vorschlägen, Absender per Knopf ins Adressbuch |
 | 3.4 | Stern-Markierung statt Fahne, Stern-Mails bleiben in der Sammelansicht; Anhänge per Drag & Drop (Windows) |
 | 3.3 | Komplette Tastatursteuerung für Windows, Tastenübersicht (F1) |
@@ -82,7 +89,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 ## Technik
 
-Flutter (Dart), `enough_mail` für IMAP/SMTP. Die Plattformordner (`android/`, `windows/`) entstehen beim Build per `flutter create` und werden von `tool/patch_platforms.py` angepasst (Manifest, Signatur, Push-Dienst, Drag & Drop im Windows-Fenster). Versionsnummer in `pubspec.yaml`; Android-versionCode = ABI × 1000 + Build-Nummer.
+Flutter (Dart), `enough_mail` für IMAP/SMTP. Die Plattformordner (`android/`, `windows/`) entstehen beim Build per `flutter create` und werden von `tool/patch_platforms.py` angepasst (Manifest, Signatur, Push-Dienst; im Windows-Fenster Drag & Drop und die Rechtschreibprüfung aus `tool/windows/`). Versionsnummer in `pubspec.yaml`; Android-versionCode = ABI × 1000 + Build-Nummer.
 
 ## Lizenz
 

@@ -246,4 +246,51 @@ def win_window_cpp(t: str) -> str:
 patch(root / "windows/runner/flutter_window.h", win_window_h)
 patch(root / "windows/runner/flutter_window.cpp", win_window_cpp)
 
+# ---------- Windows: Rechtschreibprüfung (ISpellChecker) → Kanal "echowp/spell" ----------
+import shutil
+
+_win_runner = root / "windows/runner"
+if _win_runner.exists():
+    for _f in ("spell_checker.h", "spell_checker.cpp"):
+        shutil.copyfile(root / "tool/windows" / _f, _win_runner / _f)
+        print(f"kopiert: windows/runner/{_f}")
+
+
+def win_runner_cmake(t: str) -> str:
+    if "spell_checker.cpp" in t:
+        return t
+    need(t, '"flutter_window.cpp"', "runner/CMakeLists.txt")
+    return t.replace('"flutter_window.cpp"', '"flutter_window.cpp"\n  "spell_checker.cpp"', 1)
+
+
+def win_spell_h(t: str) -> str:
+    if "spell_channel_" in t:
+        return t
+    need(t, "drop_channel_;", "flutter_window.h")
+    return t.replace(
+        "drop_channel_;",
+        "drop_channel_;\n\n  // Kanal für die Windows-Rechtschreibprüfung\n"
+        "  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> spell_channel_;",
+        1,
+    )
+
+
+def win_spell_cpp(t: str) -> str:
+    if "CreateSpellCheckChannel" in t:
+        return t
+    for a in ['#include <flutter/standard_method_codec.h>', "DragAcceptFiles(GetHandle(), TRUE);",
+              "    drop_channel_ = nullptr;"]:
+        need(t, a, "flutter_window.cpp")
+    t = t.replace('#include <flutter/standard_method_codec.h>',
+                  '#include <flutter/standard_method_codec.h>\n\n#include "spell_checker.h"', 1)
+    t = t.replace("DragAcceptFiles(GetHandle(), TRUE);",
+                  "DragAcceptFiles(GetHandle(), TRUE);\n"
+                  "  spell_channel_ = CreateSpellCheckChannel(flutter_controller_->engine()->messenger());", 1)
+    return t.replace("    drop_channel_ = nullptr;", "    spell_channel_ = nullptr;\n    drop_channel_ = nullptr;", 1)
+
+
+patch(root / "windows/runner/CMakeLists.txt", win_runner_cmake)
+patch(root / "windows/runner/flutter_window.h", win_spell_h)
+patch(root / "windows/runner/flutter_window.cpp", win_spell_cpp)
+
 print("Plattform-Anpassungen abgeschlossen.")
