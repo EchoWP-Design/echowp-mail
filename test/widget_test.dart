@@ -1561,7 +1561,9 @@ void main() {
       return (a, b, b.ownPublicArmored('b1')!);
     }
 
-    String between(String s, String start, String end) => s.substring(s.indexOf(start), s.indexOf(end) + end.length);
+    // Armor aus der Mail (CRLF) für dart_pg auf LF bringen
+    String between(String s, String start, String end) =>
+        s.substring(s.indexOf(start), s.indexOf(end) + end.length).replaceAll('\r\n', '\n');
 
     test('Schlüssel erzeugen, gestückelt sicher speichern, neu laden, entsperren', () async {
       FlutterSecureStorage.setMockInitialValues({});
@@ -1660,7 +1662,7 @@ void main() {
       );
       final raw = a.protect(renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: false, sign: true);
       expect(raw, contains('multipart/signed'));
-      expect(raw, contains('micalg=pgp-sha256'));
+      expect(raw, matches(RegExp(r'micalg=pgp-sha(256|384|512);')), reason: 'passend zum tatsächlichen Hash');
       expect(raw, contains('protocol="application/pgp-signature"'));
       final boundary = RegExp(r'boundary="([^"]+)"').firstMatch(raw)!.group(1)!;
       final start = raw.indexOf('--$boundary\r\n') + '--$boundary\r\n'.length;

@@ -282,6 +282,9 @@ class PgpService {
         '--$boundary--\r\n';
   }
 
+  /// Armor aus einer Mail lesbar machen (dart_pg erwartet LF-Zeilenenden).
+  static String normalizeArmor(String s) => s.replaceAll('\r\n', '\n').trim();
+
   static String _crlf(String s) => s.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n').trimRight();
 
   static String _protectedHeaders(String outer) {
