@@ -1505,8 +1505,11 @@ void main() {
       s.settings.grammarCheck = false;
       await tester.pumpWidget(_wrap(s, const ComposeScreen()));
       await tester.pump();
+      await tester.ensureVisible(find.byKey(const ValueKey('compose-contacts')));
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('compose-contacts')));
       await tester.pump();
+      expect(find.byKey(const ValueKey('compose-contact-search')), findsOneWidget);
       expect(tester.takeException(), isNull);
       await _drain(tester);
     });
