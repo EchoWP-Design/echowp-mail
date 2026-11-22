@@ -1221,6 +1221,7 @@ void main() {
 
     testWidgets('Grammatik kommt nach Tipp-Pause, ohne zitierte Mail, und wird gemeldet', (tester) async {
       final sent = <String>[];
+      final langs = <String>[];
       var updates = 0;
       final c = MailSpellChecker(
         lang: 'de-DE',
@@ -1228,7 +1229,7 @@ void main() {
         offline: _FakeSpeller({'Fehlre': ['Fehler']}),
         online: GrammarChecker(post: (form) async {
           sent.add(form['text']!);
-          expect(form['language'], 'de-DE');
+          langs.add(form['language']!);
           final i = form['text']!.indexOf('sind');
           return jsonEncode({
             'matches': [
@@ -1249,6 +1250,7 @@ void main() {
       await tester.pump();
       expect(sent, ['Das sind ein Fehlre.\n']);
       expect(c.lastError, isNull);
+      expect(langs, ['de-DE']);
       expect(updates, 1);
       expect(c.issues.map((i) => i.word), ['sind', 'Fehlre']);
       expect(c.issueAt(5)!.message, 'Kongruenz');
