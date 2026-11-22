@@ -267,6 +267,8 @@ class MailSpellChecker {
   bool _disposed = false;
   final Set<String> _ignored = {};
   String? grammarError;
+  /// Letzter technischer Fehler der Online-Prüfung (Fehlersuche).
+  Object? lastError;
 
   String get text => _text;
   List<SpellIssue> get issues =>
@@ -338,12 +340,14 @@ class MailSpellChecker {
       _onlineText = sent;
       _onlineLang = sentLang;
       grammarError = null;
+      lastError = null;
       onUpdate?.call();
     } on RateLimited {
       _blockedUntil = DateTime.now().add(const Duration(minutes: 1));
       grammarError = 'Grammatikprüfung kurz pausiert (zu viele Anfragen)';
       onUpdate?.call();
-    } catch (_) {
+    } catch (e) {
+      lastError = e;
       grammarError = 'Grammatikprüfung nicht erreichbar';
       onUpdate?.call();
     } finally {

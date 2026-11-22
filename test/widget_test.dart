@@ -1248,6 +1248,7 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
       await tester.pump();
       expect(sent, ['Das sind ein Fehlre.\n']);
+      expect(c.lastError, isNull);
       expect(updates, 1);
       expect(c.issues.map((i) => i.word), ['sind', 'Fehlre']);
       expect(c.issueAt(5)!.message, 'Kongruenz');
@@ -1320,9 +1321,11 @@ void main() {
       await tester.pump();
       expect(find.text('FR'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('spell-lang')));
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
       await tester.tap(find.text('Englisch (UK)').last);
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
       expect(find.text('EN-GB'), findsOneWidget);
       expect(s.settings.spellLang, 'fr-FR', reason: 'nur diese Mail');
       await _drain(tester);

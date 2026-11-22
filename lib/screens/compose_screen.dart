@@ -184,7 +184,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
       ? SpellCheckConfiguration(
           spellCheckService: SpellView(c, _spellVersion),
           misspelledTextStyle: TextField.materialMisspelledTextStyle,
-          spellCheckSuggestionsToolbarBuilder: TextField.defaultSpellCheckSuggestionsToolbarBuilder,
         )
       : const SpellCheckConfiguration.disabled();
 
