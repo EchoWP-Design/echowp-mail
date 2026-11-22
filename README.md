@@ -81,7 +81,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **5.2.1** | OpenPGP kompatibel mit Thunderbird/Betterbird: neue Schlüssel ohne AEAD-Werbung (keine Import-Warnung mehr), Mails immer im klassischen Format (SEIPDv1); seltener Fehler bei der Schlüsselerzeugung behoben |
+| **5.2.1** | OpenPGP kompatibel mit Thunderbird/Betterbird: neue Schlüssel ohne AEAD-Werbung (keine Import-Warnung mehr), Mails immer im klassischen Format (SEIPDv1); seltene Fehler bei Schlüsselerzeugung und Signaturprüfung (Ed25519) behoben |
 | 5.2 | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |
 | 5.1 | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |
 | 5.0 | Neues Schreiben-Fenster: unter Windows wie Betterbird (Menü-, Symbol- und Formatleiste, Kontakte-Leiste, CC/BCC), am Handy vereinfacht; formatierte HTML-Mails mit Bildern; Entwürfe speichern |
