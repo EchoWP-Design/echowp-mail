@@ -181,6 +181,9 @@ class MailItem {
   bool flagged;
   final bool hasAttachments;
 
+  /// OpenPGP laut Mailstruktur (PGP/MIME): null, 'encrypted' oder 'signed'.
+  final String? pgp;
+
   MailItem({
     required this.accountId,
     required this.folderPath,
@@ -192,9 +195,19 @@ class MailItem {
     required this.seen,
     required this.flagged,
     required this.hasAttachments,
+    this.pgp,
   });
 
   String get key => '$accountId|$folderPath|$uid';
+
+  /// Entschlüsselte (geschützte) Betreffs dieser Sitzung – nur im Arbeitsspeicher, nie gespeichert.
+  static final Map<String, String> _plainSubjects = {};
+
+  static void rememberSubject(String key, String subject) => _plainSubjects[key] = subject;
+  static void forgetSubjects() => _plainSubjects.clear();
+
+  /// Betreff für die Anzeige: nach dem Entschlüsseln der echte statt „...“.
+  String get displaySubject => _plainSubjects[key] ?? subject;
   String get sender => fromName.isNotEmpty ? fromName : (fromEmail.isNotEmpty ? fromEmail : '(unbekannt)');
 }
 

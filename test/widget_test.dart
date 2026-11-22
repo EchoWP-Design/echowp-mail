@@ -2030,6 +2030,51 @@ void main() {
           PgpKind.none);
     });
 
+    testWidgets('Liste: Schloss/Siegel für PGP-Mails, echter Betreff nach dem Entschlüsseln', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      addTearDown(MailItem.forgetSubjects);
+      late AppState s;
+      late String encRaw, sigRaw;
+      await tester.runAsync(() async {
+        final (st, bob) = await receiver();
+        s = st;
+        encRaw = bobWrites(bob, s, encrypt: true, sign: true, subject: 'Echter Betreff');
+        sigRaw = bobWrites(bob, s, encrypt: false, sign: true, subject: 'Nur signiert');
+      });
+      em.MimeMessage msg(String raw, int uid) => em.MimeMessage.parseFromText(raw)..uid = uid;
+      final enc = mimeToItem(msg(encRaw.replaceFirst('Subject: Echter Betreff', 'Subject: ...'), 1), 'a1', 'INBOX')!;
+      final sig = mimeToItem(msg(sigRaw, 2), 'a1', 'INBOX')!;
+      final plainMail = mimeToItem(
+          msg(MailService.buildMessage(from: _acc(), to: parseAddresses('x@example.de'), subject: 'Normal', text: 't')
+              .renderMessage(), 3),
+          'a1',
+          'INBOX')!;
+      expect(enc.pgp, 'encrypted');
+      expect(enc.hasAttachments, isFalse);
+      expect(sig.pgp, 'signed');
+      expect(sig.hasAttachments, isFalse, reason: 'Signaturteil ist kein Anhang');
+      expect(plainMail.pgp, isNull);
+      Widget tile(MailItem i) => MailTile(
+          item: i, selected: false, opened: false, accountColor: null, onTap: () {}, onLongPress: () {}, onAvatarTap: () {});
+      await tester.pumpWidget(_wrap(s, Scaffold(body: Column(children: [tile(enc), tile(sig), tile(plainMail)]))));
+      expect(find.byKey(const ValueKey('tile-pgp-encrypted')), findsOneWidget);
+      expect(find.byKey(const ValueKey('tile-pgp-signed')), findsOneWidget);
+      expect(find.text('...'), findsOneWidget);
+      // Entschlüsseln merkt den geschützten Betreff für die Liste
+      s.pgp.unlock('a1', passA);
+      final d = s.decryptDetail(MailDetail.fromMime(enc, em.MimeMessage.parseFromText(encRaw)));
+      expect(d.subject, 'Echter Betreff');
+      await tester.pumpWidget(_wrap(s, Scaffold(body: Column(children: [tile(enc)]))));
+      expect(find.text('Echter Betreff'), findsOneWidget);
+      expect(enc.subject, '...', reason: 'Originaldaten unverändert (Benachrichtigungen)');
+      MailItem.forgetSubjects();
+      await tester.pumpWidget(_wrap(s, Scaffold(body: Column(children: [tile(enc)]))));
+      expect(find.text('...'), findsOneWidget);
+      await _drain(tester);
+    });
+
     testWidgets('Mail lesen (Handy): Entschlüsseln-Knopf, Passwort, Inhalt, keine KI', (tester) async {
       tester.view.physicalSize = const Size(420, 900);
       tester.view.devicePixelRatio = 1;

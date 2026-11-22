@@ -145,7 +145,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       buf.write('Datum: ${formatFullDate(o.item.date)}\n');
       buf.write('An: ${o.to}\n');
       if (o.cc.isNotEmpty) buf.write('Cc: ${o.cc}\n');
-      buf.write('Betreff: ${o.item.subject}\n\n');
+      buf.write('Betreff: ${o.subject}\n\n');
       final quoted = widget.mode == ComposeMode.forward
           ? o.text
           : o.text.split('\n').map((l) => '> $l').join('\n');

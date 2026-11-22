@@ -478,6 +478,7 @@ class AppState extends ChangeNotifier {
 
   Future<MailDetail> loadDetail(MailItem item, {bool markSeen = true}) async {
     final d = openPgp(await mail.conn(item.accountId).fetchDetail(item, markSeen: markSeen));
+    _rememberPlainSubject(d);
     if (markSeen && !item.seen) {
       item.seen = true;
       _adjustUnread(item, -1);
@@ -520,7 +521,16 @@ class AppState extends ChangeNotifier {
   /// Entschlüsselt eine Mail (Schlüssel muss entsperrt sein). Wirft [PgpException].
   MailDetail decryptDetail(MailDetail d) {
     final o = pgp.decryptMail(d.item.accountId, d.mime, d.text, senderKeys(d));
-    return d.withPgp(o, d.pgp.copyWith(decrypted: true, sig: o.sig, signer: o.signer));
+    final r = d.withPgp(o, d.pgp.copyWith(decrypted: true, sig: o.sig, signer: o.signer));
+    if (_rememberPlainSubject(r)) notifyListeners();
+    return r;
+  }
+
+  /// Geschützten Betreff für die Liste merken (nur diese Sitzung, nur im Arbeitsspeicher).
+  bool _rememberPlainSubject(MailDetail d) {
+    if (!d.pgp.decrypted || d.subject == d.item.subject || d.subject.trim().isEmpty) return false;
+    MailItem.rememberSubject(d.item.key, d.subject);
+    return true;
   }
 
   // ---------------------------------------------------------------- Ungelesen-Zähler

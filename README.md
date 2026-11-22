@@ -2,7 +2,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 5.2.2** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 6.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -48,6 +48,7 @@ Updates werden einfach über die vorhandene App installiert (gleiche Signatur, s
 - Senden verschlüsselt und/oder signiert als PGP/MIME (RFC 3156) – kompatibel mit Thunderbird/Betterbird, GnuPG und Mailvelope; automatisch verschlüsseln, wenn für alle Empfänger Schlüssel vorliegen
 - Geheimer Schlüssel nur im sicheren Speicher des Geräts (nicht im Drive-Abgleich), Passwort höchstens bis zum Beenden der App gemerkt; bei verschlüsselten Mails sind KI und Online-Grammatikprüfung aus
 - Empfangen: verschlüsselte Mails (PGP/MIME und Inline-PGP) nach Passwortabfrage entschlüsseln – Text, HTML, Anhänge und geschützter Betreff; Signaturen prüfen (PGP/MIME und Klartextsignatur) mit Statusleiste: verschlüsselt / Signatur gültig / ungültig / Schlüssel unbekannt
+- Mailliste/„Aktuell“: 🔒 verschlüsselt, Siegel = signiert; geschützter Betreff erscheint nach dem Entschlüsseln auch in der Liste
 - Entschlüsselte Inhalte gehen nie an die KI; Antworten auf verschlüsselte Mails werden wieder verschlüsselt
 
 ### Rechtschreibung und Grammatik
@@ -81,7 +82,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **5.2.2** | OpenPGP: Signaturen aus Thunderbird/Betterbird werden als gültig erkannt (Ablaufzeit 0 = nie), Textmodus-Signaturen, Schlüssel aus Betterbird/Windows-Dateien (CRLF) übernehmbar; automatische Gegentests mit RNP und GnuPG |
+| **6.0** | OpenPGP komplett: in der Mailliste und in „Aktuell“ Schloss (verschlüsselt) bzw. Siegel (signiert); nach dem Entschlüsseln echter Betreff statt „...“ (nur bis App-Ende im Arbeitsspeicher); Signaturteile nicht mehr als Anhang gezählt |
+| 5.2.2 | OpenPGP: Signaturen aus Thunderbird/Betterbird werden als gültig erkannt (Ablaufzeit 0 = nie), Textmodus-Signaturen, Schlüssel aus Betterbird/Windows-Dateien (CRLF) übernehmbar; automatische Gegentests mit RNP und GnuPG |
 | 5.2.1 | OpenPGP kompatibel mit Thunderbird/Betterbird: neue Schlüssel ohne AEAD-Werbung (keine Import-Warnung mehr), Mails immer im klassischen Format (SEIPDv1); seltene Fehler bei Schlüsselerzeugung und Signaturprüfung (Ed25519) behoben |
 | 5.2 | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |
 | 5.1 | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |

@@ -165,6 +165,7 @@ class PgpScreen extends StatelessWidget {
           subtitle: const Text('Passwort beim nächsten Senden erneut abfragen'),
           onTap: () {
             s.pgp.lockAll();
+            MailItem.forgetSubjects();
             s.toast('Schlüssel gesperrt');
           },
         ),

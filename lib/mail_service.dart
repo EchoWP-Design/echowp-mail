@@ -190,9 +190,20 @@ MailItem? mimeToItem(em.MimeMessage m, String accountId, String path) {
   try {
     date = env?.date ?? m.decodeDate();
   } catch (_) {}
+  String? pgp;
+  try {
+    final ct = m.body?.contentType ?? m.getHeaderContentType();
+    final type = ct?.mediaType.text.toLowerCase();
+    final proto = (ct?.parameters['protocol'] ?? '').toLowerCase().replaceAll('"', '');
+    if (type == 'multipart/encrypted' && proto.contains('pgp')) pgp = 'encrypted';
+    if (type == 'multipart/signed' && proto.contains('pgp')) pgp = 'signed';
+  } catch (_) {}
   bool att = false;
   try {
-    att = m.hasAttachments();
+    // Signatur-/Verschlüsselungsteile zählen nicht als Anhang
+    att = pgp == 'encrypted'
+        ? false
+        : m.findContentInfo().any((i) => !MailDetail._pgpTypes.contains(i.mediaType?.text.toLowerCase()));
   } catch (_) {}
   return MailItem(
     accountId: accountId,
@@ -205,6 +216,7 @@ MailItem? mimeToItem(em.MimeMessage m, String accountId, String path) {
     seen: m.isSeen,
     flagged: m.isFlagged,
     hasAttachments: att,
+    pgp: pgp,
   );
 }
 

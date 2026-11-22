@@ -217,7 +217,7 @@ Future<String?> aiPickFolder(BuildContext context, AppState s, MailItem item) as
     builder: (ctx) => AlertDialog(
       icon: const Icon(Icons.auto_awesome),
       title: const Text('KI-Vorschlag'),
-      content: Text('„${item.subject}“\n\nnach „$name“ verschieben?'),
+      content: Text('„${item.displaySubject}“\n\nnach „$name“ verschieben?'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
         TextButton(onPressed: () => Navigator.pop(ctx, '__other'), child: const Text('Anderer Ordner')),

@@ -95,7 +95,7 @@ class MailTile extends StatelessWidget {
                     Row(children: [
                       Expanded(
                         child: Text(
-                          item.subject,
+                          item.displaySubject,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
@@ -104,6 +104,17 @@ class MailTile extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (item.pgp == 'encrypted')
+                        Tooltip(
+                          message: 'Verschlüsselt (OpenPGP)',
+                          child: Icon(Icons.lock, key: const ValueKey('tile-pgp-encrypted'), size: 16, color: cs.primary),
+                        )
+                      else if (item.pgp == 'signed')
+                        Tooltip(
+                          message: 'Signiert (OpenPGP)',
+                          child: Icon(Icons.verified_outlined,
+                              key: const ValueKey('tile-pgp-signed'), size: 16, color: cs.onSurfaceVariant),
+                        ),
                       if (item.hasAttachments)
                         Icon(Icons.attach_file, size: 16, color: cs.onSurfaceVariant),
                       StarButton(starred: item.flagged, onTap: onStarTap),
