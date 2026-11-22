@@ -81,7 +81,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **5.2.2** | OpenPGP: Signaturen aus Thunderbird/Betterbird werden als gültig erkannt (Ablaufzeit 0 = nie), Textmodus-Signaturen; automatische Gegentests mit RNP und GnuPG |
+| **5.2.2** | OpenPGP: Signaturen aus Thunderbird/Betterbird werden als gültig erkannt (Ablaufzeit 0 = nie), Textmodus-Signaturen, Schlüssel aus Betterbird/Windows-Dateien (CRLF) übernehmbar; automatische Gegentests mit RNP und GnuPG |
 | 5.2.1 | OpenPGP kompatibel mit Thunderbird/Betterbird: neue Schlüssel ohne AEAD-Werbung (keine Import-Warnung mehr), Mails immer im klassischen Format (SEIPDv1); seltene Fehler bei Schlüsselerzeugung und Signaturprüfung (Ed25519) behoben |
 | 5.2 | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |
 | 5.1 | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |

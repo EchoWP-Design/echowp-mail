@@ -1,26 +1,27 @@
-# Übergabe – 2026-11-22, 23:00
+# Übergabe – 2026-11-22, 23:40
 
 ## Ziel der Sitzung
-OpenPGP Stufe 3 (v5.2), danach Kompatibilität mit Betterbird (v5.2.1) nach Jans Screenshots.
+OpenPGP: Lesen (v5.2) und echte Kompatibilität mit Betterbird (v5.2.1, v5.2.2) nach Jans Praxistests.
 
 ## Erledigt
-- v5.2 OpenPGP lesen (entschlüsseln, Signaturen prüfen, Statusleiste) – 8ff5ec1
-- v5.2.1: dart_pg als gepatchte Kopie in `third_party/dart_pg` (PATCHES.md, 5 Patches): keine AEAD-Werbung im Schlüssel (Betterbird-Warnung), nie automatisch AEAD verschlüsseln, Ed25519-Seed und r/s mit Nullbyte – 3bdd182, 5a093ed
-- Release v5.2.1-build-44 (arm64 versionCode 2020), 85/85 Tests
+- v5.2 OpenPGP lesen – 8ff5ec1
+- v5.2.1 dart_pg gepatcht in `third_party/dart_pg` (keine AEAD-Werbung, kein Auto-AEAD, Ed25519-Nullbytes) – 3bdd182, 5a093ed
+- v5.2.2 Signaturen aus Betterbird gültig (Ablaufzeit 0 = nie), Textsignaturen, Armor mit CRLF; CI installiert rnp + gnupg, Gegentests in beide Richtungen – 781a2d8 … 7acf9b6
+- Release v5.2.2-build-48 (arm64 versionCode 2021), 87/87 Tests
+- Jans Praxistest (vor 5.2.2): EchoWP → Betterbird ok (entschlüsselt, Signatur); Betterbird → EchoWP entschlüsselt, Signatur fälschlich „ungültig“ → behoben
 
 ## Offen / nächster Schritt
-1. Jan: v5.2.1 installieren, Schlüssel in EchoWP-Mail neu erzeugen (alter Schlüssel 0x729EC2FE1490267D wirbt noch mit AEAD), neu in Betterbird importieren, dort der Identität zuweisen (alter Verweis 0x3C984D20A38475AF ist verwaist)
-2. Praxistest in beide Richtungen: EchoWP-Mail → Betterbird und Betterbird → EchoWP-Mail (verschlüsselt + signiert), Screenshots der Statusleiste
+1. Jan: v5.2.2 installieren, „PGP Test“ aus Betterbird erneut öffnen → Signatur sollte gültig sein; „Schlüssel übernehmen“ beim Betterbird-Anhang testen
+2. Prüfen, ob Jans web.de-Schlüssel in Betterbird (0x8F4698AFF2A2A52F) derselbe ist wie in EchoWP-Mail
 3. Ideen: Autocrypt/WKD, Schlüssel-Ablauf/Widerruf, Inline-PGP-Anhänge
 
 ## Entscheidungen
-- dart_pg vendort statt Fork-Repo: Patches bleiben im App-Repo sichtbar, kein pub.dev nötig
+- dart_pg vendort (PATCHES.md, 8 Patches); Interop wird mit echtem RNP/GnuPG in CI geprüft (Tests überspringen sich ohne die Programme)
 - Entschlüsselte Inhalte nie an KI; Antworten auf verschlüsselte Mails wieder verschlüsselt
-- Geheimer Schlüssel weiter nicht im Drive-Abgleich
 
 ## Bekannte Probleme
-- Schlüssel, die vor 5.2.1 erzeugt wurden, behalten die AEAD-Werbung (nur Neuerzeugung hilft)
-- Windows-Teile nur in CI gebaut; echte Interop mit Thunderbird noch unbestätigt
+- Vor 5.2.1 erzeugte Schlüssel werben mit AEAD (nur Neuerzeugung hilft)
+- Test-Diagnose `fail('RNP-Schlüssel nicht lesbar…')` im RNP-Gegentest kann bleiben
 
 ## Zustand
-- Branch `main`, letzter Code-Commit 5a093ed; Run 45072933672 grün
+- Branch `main`, letzter Code-Commit 7acf9b6; Run 45076940494 grün
