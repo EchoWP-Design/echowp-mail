@@ -304,6 +304,8 @@ class AppSettings {
   bool spellCheck;
   bool grammarCheck;
   String spellLang;
+  bool pgpAutoEncrypt;
+  bool pgpSignDefault;
 
   AppSettings({
     this.themeMode = ThemeMode.system,
@@ -316,6 +318,8 @@ class AppSettings {
     this.spellCheck = true,
     this.grammarCheck = true,
     this.spellLang = 'de-DE',
+    this.pgpAutoEncrypt = true,
+    this.pgpSignDefault = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -328,6 +332,8 @@ class AppSettings {
         'spellCheck': spellCheck,
         'grammarCheck': grammarCheck,
         'spellLang': spellLang,
+        'pgpAutoEncrypt': pgpAutoEncrypt,
+        'pgpSignDefault': pgpSignDefault,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -340,5 +346,7 @@ class AppSettings {
         spellCheck: j['spellCheck'] as bool? ?? true,
         grammarCheck: j['grammarCheck'] as bool? ?? true,
         spellLang: j['spellLang'] as String? ?? 'de-DE',
+        pgpAutoEncrypt: j['pgpAutoEncrypt'] as bool? ?? true,
+        pgpSignDefault: j['pgpSignDefault'] as bool? ?? false,
       );
 }

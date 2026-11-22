@@ -7,7 +7,9 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../contacts.dart';
 import '../mail_service.dart';
+import '../pgp.dart';
 import 'compose_screen.dart';
+import 'pgp_screen.dart';
 
 String _initials(String s) {
   final w = s.trim().split(RegExp(r'[\s@._-]+')).where((x) => x.isNotEmpty).toList();
@@ -265,7 +267,7 @@ class _ContactEditScreenState extends State<ContactEditScreen> {
         ..._emails.map((e) => e.text),
       ].join('\u0000');
 
-  bool get _dirty => _snapshot() != _initial;
+  bool get _dirty => _keyChanged || _snapshot() != _initial;
 
   /// Prüft und speichert. Gibt `false` zurück, wenn etwas nicht stimmt.
   Future<bool> _save() async {
@@ -295,6 +297,7 @@ class _ContactEditScreenState extends State<ContactEditScreen> {
       ..notes = _notes.text.trim();
     await s.saveContact(_c);
     _initial = _snapshot();
+    _keyChanged = false;
     return true;
   }
 
@@ -340,6 +343,67 @@ class _ContactEditScreenState extends State<ContactEditScreen> {
     await s.deleteContact(_c.id);
     if (mounted) Navigator.pop(context);
   }
+
+  Widget _pgpSection() {
+    final key = _c.pgpKey;
+    PgpKeyInfo? info;
+    if (key != null) {
+      try {
+        info = PgpService.readPublicInfo(key);
+      } catch (_) {}
+    }
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(info != null ? Icons.lock_outline : Icons.lock_open, size: 20),
+            const SizedBox(width: 8),
+            Text('OpenPGP-Schlüssel', style: theme.textTheme.titleSmall),
+          ]),
+          const SizedBox(height: 6),
+          if (info == null)
+            const Text('Kein Schlüssel – Mails an diesen Kontakt können nicht verschlüsselt werden.')
+          else ...[
+            SelectableText(info.groupedFingerprint, style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'Courier New')),
+            Text(info.userIds.join(', '), style: theme.textTheme.bodySmall),
+            if (info.expired) Text('Abgelaufen!', style: TextStyle(color: theme.colorScheme.error)),
+          ],
+          const SizedBox(height: 6),
+          Wrap(spacing: 8, children: [
+            OutlinedButton.icon(
+              key: const ValueKey('contact-pgp-import'),
+              onPressed: () async {
+                final a = await pickArmoredKey(context, title: 'Öffentlichen Schlüssel übernehmen');
+                if (a == null || a.trim().isEmpty || !mounted) return;
+                try {
+                  PgpService.readPublicInfo(a);
+                  setState(() => _c.pgpKey = PgpService.publicOnly(a));
+                  _keyChanged = true;
+                } catch (e) {
+                  if (mounted) context.read<AppState>().toast(pgpError(e));
+                }
+              },
+              icon: const Icon(Icons.key),
+              label: Text(info == null ? 'Schlüssel hinzufügen' : 'Ersetzen'),
+            ),
+            if (info != null)
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _c.pgpKey = null;
+                  _keyChanged = true;
+                }),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Entfernen'),
+              ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  bool _keyChanged = false;
 
   Widget _field(TextEditingController c, String label, IconData icon,
           {TextInputType? type, int maxLines = 1, Key? key, Widget? suffix}) =>
@@ -430,6 +494,8 @@ class _ContactEditScreenState extends State<ContactEditScreen> {
             _field(_address, 'Anschrift', Icons.home_outlined, maxLines: 4),
             _field(_birthday, 'Geburtstag', Icons.cake_outlined, type: TextInputType.datetime),
             _field(_notes, 'Notizen', Icons.notes, maxLines: 6),
+            const SizedBox(height: 8),
+            _pgpSection(),
           ]),
         ),
       ),

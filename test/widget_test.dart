@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:echowp_mail/app_state.dart';
+import 'package:dart_pg/dart_pg.dart' as pg;
+import 'package:enough_mail/enough_mail.dart' as em;
 import 'package:echowp_mail/background.dart';
 import 'package:echowp_mail/contacts.dart';
 import 'package:echowp_mail/file_drop.dart';
@@ -10,6 +12,7 @@ import 'package:echowp_mail/mail_service.dart';
 import 'package:echowp_mail/models.dart';
 import 'package:echowp_mail/new_mail.dart';
 import 'package:echowp_mail/notifications.dart';
+import 'package:echowp_mail/pgp.dart';
 import 'package:echowp_mail/rich_text.dart';
 import 'package:echowp_mail/screens/compose_screen.dart';
 import 'package:echowp_mail/screens/contacts_screen.dart';
@@ -1465,6 +1468,8 @@ void main() {
       expect(find.widgetWithText(TextField, 'Bcc'), findsOneWidget);
 
       // Kontakte-Leiste: Antippen übernimmt Empfänger
+      await tester.ensureVisible(find.byKey(const ValueKey('compose-contacts')));
+      await tester.pump();
       await tester.tap(find.byKey(const ValueKey('compose-contacts')));
       await tester.pump();
       await tester.tap(find.text('Anna Beispiel'));
@@ -1539,6 +1544,203 @@ void main() {
       final to = tester.widget<TextField>(find.widgetWithText(TextField, 'An')).controller!.text;
       expect(to, 'Bernd <b@example.de>, ');
       expect(tester.takeException(), isNull);
+      await _drain(tester);
+    });
+  });
+
+  group('OpenPGP', () {
+    const passA = 'geheim-1234';
+    const passB = 'bobs-pass-99';
+
+    Future<(PgpService, PgpService, String)> keys() async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final a = PgpService();
+      await a.generate('a1', 'Test Konto', 'test@example.de', passA);
+      final b = PgpService();
+      await b.generate('b1', 'Bob', 'bob@example.de', passB);
+      return (a, b, b.ownPublicArmored('b1')!);
+    }
+
+    String between(String s, String start, String end) => s.substring(s.indexOf(start), s.indexOf(end) + end.length);
+
+    test('Schlüssel erzeugen, gestückelt sicher speichern, neu laden, entsperren', () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      PgpService.chunkSize = 200;
+      addTearDown(() => PgpService.chunkSize = 1800);
+      final p = PgpService();
+      final info = await p.generate('a1', 'Test Konto', 'test@example.de', passA);
+      expect(info.emails, ['test@example.de']);
+      expect(info.fingerprint.length, 40, reason: 'v4-Schlüssel (SHA-1-Fingerabdruck), kompatibel zu GnuPG');
+      expect(info.groupedFingerprint.split(' ').where((x) => x.isNotEmpty).length, 10);
+      final p2 = PgpService();
+      await p2.load(['a1', 'x']);
+      expect(p2.hasKey('a1'), isTrue);
+      expect(p2.hasKey('x'), isFalse);
+      expect(p2.ownKey('a1')!.fingerprint, info.fingerprint);
+      expect(() => p2.unlock('a1', 'falsch'), throwsA(isA<PgpException>()));
+      p2.unlock('a1', passA);
+      expect(p2.isUnlocked('a1'), isTrue);
+      await expectLater(p2.generate('a1', 'x', 'y@example.de', 'kurz'), throwsA(isA<PgpException>()));
+      // Import mit falschem Passwort scheitert, mit richtigem klappt es
+      final secret = p2.ownSecretArmored('a1')!;
+      await expectLater(p2.importSecret('c1', secret, 'falsch'), throwsA(isA<PgpException>()));
+      final imp = await p2.importSecret('c1', secret, passA);
+      expect(imp.fingerprint, info.fingerprint);
+      await p2.removeKey('c1');
+      expect(p2.hasKey('c1'), isFalse);
+      expect(() => PgpService.readPublicInfo('Quatsch'), throwsA(isA<PgpException>()));
+    });
+
+    test('Verschlüsselt + signiert: PGP/MIME, Bcc unsichtbar, Bob kann entschlüsseln und prüfen', () async {
+      final (a, b, bobPub) = await keys();
+      a.unlock('a1', passA);
+      final plain = MailService.buildMessage(
+        from: _acc(),
+        to: parseAddresses('Bob <bob@example.de>'),
+        subject: 'Geheim',
+        text: 'Hallo Bob, äöü ß',
+        attachments: [('plan.txt', Uint8List.fromList(utf8.encode('Plan')))],
+        sevenBit: true,
+      );
+      final raw = a.protect(
+          renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: true, sign: true, recipientKeys: [bobPub]);
+      expect(raw, contains('multipart/encrypted'));
+      expect(raw, contains('protocol="application/pgp-encrypted"'));
+      expect(raw, contains('Version: 1'));
+      expect(raw, contains('-----BEGIN PGP MESSAGE-----'));
+      expect(raw, contains('Subject: Geheim'));
+      expect(raw, isNot(contains('Hallo Bob')));
+      expect(raw, isNot(contains('plan.txt')));
+
+      final armored = between(raw, '-----BEGIN PGP MESSAGE-----', '-----END PGP MESSAGE-----');
+      final bobKey = pg.OpenPGP.decryptPrivateKey(b.ownSecretArmored('b1')!, passB);
+      final lit = pg.OpenPGP.decrypt(armored, decryptionKeys: [bobKey]);
+      final inner = em.MimeMessage.parseFromText(utf8.decode(lit.literalData.binary));
+      expect(inner.decodeSubject(), 'Geheim', reason: 'geschützte Kopfzeilen innen');
+      expect(inner.decodeTextPlainPart(), contains('Hallo Bob, äöü ß'));
+      expect(inner.findContentInfo().map((i) => i.fileName), contains('plan.txt'));
+      final ver = lit.verify([pg.OpenPGP.readPublicKey(a.ownPublicArmored('a1')!)]);
+      expect(ver.any((v) => v.isVerified), isTrue);
+
+      // Auch Absender selbst kann die gesendete Kopie lesen
+      final own = pg.OpenPGP.decryptPrivateKey(a.ownSecretArmored('a1')!, passA);
+      expect(utf8.decode(pg.OpenPGP.decrypt(armored, decryptionKeys: [own]).literalData.binary), contains('Geheim'));
+
+      // Als Mail einlesbar (für Versand und „Gesendet“)
+      final parsed = em.MimeMessage.parseFromText(raw);
+      expect(parsed.to!.single.email, 'bob@example.de');
+      expect(parsed.renderMessage(), contains('-----BEGIN PGP MESSAGE-----'));
+    });
+
+    test('Bcc wird nie in die Mail geschrieben', () {
+      final plain = MailService.buildMessage(
+        from: _acc(),
+        to: parseAddresses('bob@example.de'),
+        bcc: parseAddresses('geheim@example.de'),
+        subject: 'x',
+        text: 'y',
+        sevenBit: true,
+      );
+      final (outer, entity) = PgpService.splitForPgp(plain.renderMessage());
+      expect('$outer$entity', isNot(contains('geheim@example.de')));
+      expect(outer, contains('MIME-Version: 1.0'));
+      expect(entity, startsWith('Content-'));
+    });
+
+    test('Nur signiert: multipart/signed, Signatur über den ersten Teil ist gültig', () async {
+      final (a, _, _) = await keys();
+      a.unlock('a1', passA);
+      final plain = MailService.buildMessage(
+        from: _acc(),
+        to: parseAddresses('bob@example.de'),
+        subject: 'Signiert',
+        text: 'Grüße\nZeile 2 ',
+        html: '<b>Grüße</b>',
+        sevenBit: true,
+      );
+      final raw = a.protect(renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: false, sign: true);
+      expect(raw, contains('multipart/signed'));
+      expect(raw, contains('micalg=pgp-sha256'));
+      expect(raw, contains('protocol="application/pgp-signature"'));
+      final boundary = RegExp(r'boundary="([^"]+)"').firstMatch(raw)!.group(1)!;
+      final start = raw.indexOf('--$boundary\r\n') + '--$boundary\r\n'.length;
+      final end = raw.indexOf('\r\n--$boundary\r\n', start);
+      final entity = raw.substring(start, end);
+      expect(entity, contains('quoted-printable'));
+      expect(entity.codeUnits.every((c) => c < 128), isTrue, reason: 'nur 7-Bit, sonst bricht die Signatur unterwegs');
+      final sig = pg.OpenPGP.readSignature(between(raw, '-----BEGIN PGP SIGNATURE-----', '-----END PGP SIGNATURE-----'));
+      final ok = pg.OpenPGP.createLiteralMessage(Uint8List.fromList(utf8.encode(entity)))
+          .verifyDetached([pg.OpenPGP.readPublicKey(a.ownPublicArmored('a1')!)], sig);
+      expect(ok.any((v) => v.isVerified), isTrue);
+      // Manipulation fällt auf
+      final bad = pg.OpenPGP.createLiteralMessage(Uint8List.fromList(utf8.encode('${entity}x')))
+          .verifyDetached([pg.OpenPGP.readPublicKey(a.ownPublicArmored('a1')!)], sig);
+      expect(bad.any((v) => v.isVerified), isFalse);
+      // Gesperrter Schlüssel → klare Meldung
+      a.lockAll();
+      expect(() => a.protect(renderedMessage: plain.renderMessage(), accountId: 'a1', encrypt: false, sign: true),
+          throwsA(isA<PgpException>()));
+    });
+
+    test('Öffentlichen Schlüssel übernehmen: Kontakt wird angelegt, Empfängerschlüssel gefunden', () async {
+      SharedPreferences.setMockInitialValues({});
+      final (_, b, bobPub) = await keys();
+      final s = AppState()..accounts = [_acc()];
+      await s.pgp.generate('a1', 'Test Konto', 'test@example.de', passA);
+      final done = await s.importPublicKey(bobPub);
+      expect(done, ['bob@example.de']);
+      final c = s.book.byEmail('bob@example.de')!;
+      expect(c.name, 'Bob');
+      expect(c.pgpKey, contains('PUBLIC KEY BLOCK'));
+      expect(Contact.fromJson(c.toJson()).pgpKey, c.pgpKey, reason: 'wird gespeichert und abgeglichen');
+      final k = s.recipientKeys(['Bob@Example.de', 'test@example.de', 'fremd@example.de']);
+      expect(k['bob@example.de'], isNotNull);
+      expect(k['test@example.de'], isNotNull, reason: 'eigenes Konto');
+      expect(k['fremd@example.de'], isNull);
+      // Geheimer Schlüssel wird nie als Kontaktschlüssel gespeichert
+      expect(PgpService.publicOnly(b.ownSecretArmored('b1')!), isNot(contains('PRIVATE')));
+    });
+
+    testWidgets('Schreiben (Windows): Verschlüsselung automatisch, Hinweis, ohne Schlüssel Rückfrage', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      ComposeScreen.desktopLayout = true;
+      addTearDown(() => ComposeScreen.desktopLayout = null);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.settings.grammarCheck = false;
+      await tester.pumpWidget(_wrap(s, const ComposeScreen()));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('compose-encrypt')), findsOneWidget);
+      expect(find.byKey(const ValueKey('compose-sign')), findsOneWidget);
+      // ohne eigenen Schlüssel → Rückfrage
+      await tester.tap(find.byKey(const ValueKey('compose-encrypt')));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Kein OpenPGP-Schlüssel'), findsOneWidget);
+      await tester.tap(find.text('Abbrechen'));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // mit Schlüsseln: Empfänger mit Schlüssel → automatisch verschlüsselt
+      await tester.runAsync(() async {
+        await s.pgp.generate('a1', 'Test Konto', 'test@example.de', passA);
+        final bob = PgpService(storage: const FlutterSecureStorage());
+        await bob.generate('b1', 'Bob', 'bob@example.de', passB);
+        s.book.contacts = [Contact(name: 'Bob', emails: ['bob@example.de'], pgpKey: bob.ownPublicArmored('b1'))];
+      });
+      await tester.enterText(find.widgetWithText(TextField, 'An'), 'Bob <bob@example.de>');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pgp-notice')), findsOneWidget);
+      expect(find.textContaining('Wird verschlüsselt'), findsOneWidget);
+      // fremder Empfänger ohne Schlüssel → Automatik aus
+      await tester.enterText(find.widgetWithText(TextField, 'An'), 'fremd@example.de');
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pgp-notice')), findsNothing);
+      // von Hand einschalten → Warnung über fehlenden Schlüssel
+      await tester.tap(find.byKey(const ValueKey('compose-encrypt')));
+      await tester.pump();
+      expect(find.textContaining('Kein Schlüssel für: fremd@example.de'), findsOneWidget);
       await _drain(tester);
     });
   });

@@ -14,6 +14,7 @@ import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
 import 'compose_screen.dart';
 import 'contacts_screen.dart';
+import 'pgp_screen.dart';
 
 class MessageScreen extends StatelessWidget {
   final MailItem item;
@@ -387,6 +388,23 @@ class _MessageViewState extends State<MessageView> {
                   avatar: const Icon(Icons.attach_file, size: 18),
                   label: Text('${a.name}${a.sizeText.isEmpty ? '' : '  (${a.sizeText})'}'),
                   onPressed: () => _saveAttachment(d, a),
+                ),
+              // Angehängter öffentlicher OpenPGP-Schlüssel → ins Adressbuch übernehmen
+              for (final a in d.attachments.where((a) => a.name.toLowerCase().endsWith('.asc')))
+                ActionChip(
+                  key: ValueKey('import-key-${a.name}'),
+                  avatar: const Icon(Icons.key, size: 18),
+                  label: const Text('Schlüssel übernehmen'),
+                  onPressed: () async {
+                    final b = d.attachmentBytes(a);
+                    if (b == null) return;
+                    try {
+                      final done = await s.importPublicKey(String.fromCharCodes(b));
+                      s.toast('Schlüssel übernommen für ${done.join(', ')}');
+                    } catch (e) {
+                      s.toast(pgpError(e));
+                    }
+                  },
                 ),
             ]),
           ],

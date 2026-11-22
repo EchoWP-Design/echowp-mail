@@ -14,6 +14,8 @@ class Contact {
   String address;
   String birthday;
   String notes;
+  /// Öffentlicher OpenPGP-Schlüssel (ASCII-Armor), falls bekannt.
+  String? pgpKey;
 
   Contact({
     String? id,
@@ -25,6 +27,7 @@ class Contact {
     this.address = '',
     this.birthday = '',
     this.notes = '',
+    this.pgpKey,
   })  : id = id ?? _newId(),
         emails = emails ?? [];
 
@@ -50,6 +53,7 @@ class Contact {
         'address': address,
         'birthday': birthday,
         'notes': notes,
+        if (pgpKey != null) 'pgpKey': pgpKey,
       };
 
   factory Contact.fromJson(Map<String, dynamic> j) => Contact(
@@ -62,6 +66,7 @@ class Contact {
         address: j['address'] as String? ?? '',
         birthday: j['birthday'] as String? ?? '',
         notes: j['notes'] as String? ?? '',
+        pgpKey: j['pgpKey'] as String?,
       );
 
   Contact copy() => Contact.fromJson(toJson());

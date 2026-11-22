@@ -15,6 +15,7 @@ import '../widgets/address_field.dart';
 import '../widgets/common.dart';
 import '../widgets/shortcuts_help.dart';
 import 'contacts_screen.dart';
+import 'pgp_screen.dart';
 
 enum ComposeMode { newMail, reply, replyAll, forward }
 
@@ -59,6 +60,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _showBcc = false;
   bool _showContacts = false;
   bool _showFormatBar = true;
+
+  // OpenPGP: null = automatisch (wenn für alle Empfänger Schlüssel da sind und Einstellung an)
+  bool? _encryptChoice;
+  bool _sign = false;
+  bool _grammarWanted = true;
   bool _busy = false;
   final List<(String, Uint8List)> _attachments = [];
 
@@ -83,6 +89,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     FileDrop.listen(_onDrop);
     final st = s.settings;
     _spellOn = st.spellCheck;
+    _grammarWanted = st.grammarCheck;
+    _sign = st.pgpSignDefault && s.pgp.hasKey(_accountId);
     _bodySpell = MailSpellChecker(
       lang: st.spellLang,
       grammar: st.grammarCheck,
@@ -145,6 +153,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     );
     _initial = _snapshot();
     _body.addListener(_onBodyChanged);
+    for (final c in [_to, _cc, _bcc]) {
+      c.addListener(_onRecipientsChanged);
+    }
   }
 
   // ---------------------------------------------------------------- Tastatur & Schließen
@@ -186,6 +197,124 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
     _bodyFocus.dispose();
     super.dispose();
+  }
+
+  void _onRecipientsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  // ---------------------------------------------------------------- OpenPGP
+
+  static final _emailRe = RegExp(r'[^\s<>,;"]+@[^\s<>,;"]+');
+
+  List<String> get _recipientEmails => [
+        for (final c in [_to, _cc, _bcc])
+          for (final m in _emailRe.allMatches(c.text)) m.group(0)!.toLowerCase(),
+      ];
+
+  bool _hasOwnKey(AppState s) => s.pgp.hasKey(_accountId);
+
+  Map<String, String?> _keys(AppState s) => s.recipientKeys(_recipientEmails);
+
+  bool _encryptOn(AppState s) {
+    if (!_hasOwnKey(s)) return false;
+    if (_encryptChoice != null) return _encryptChoice!;
+    final k = _keys(s);
+    return s.settings.pgpAutoEncrypt && k.isNotEmpty && k.values.every((v) => v != null);
+  }
+
+  bool _signOn(AppState s) => _sign && _hasOwnKey(s);
+
+  Future<bool> _needOwnKey(AppState s) async {
+    if (_hasOwnKey(s)) return true;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Kein OpenPGP-Schlüssel'),
+        content: const Text('Für dieses Konto ist noch kein eigener Schlüssel eingerichtet. '
+            'Jetzt einen erzeugen oder importieren?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Einrichten')),
+        ],
+      ),
+    );
+    if (go == true && mounted) {
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const PgpScreen()));
+    }
+    return _hasOwnKey(s);
+  }
+
+  Future<void> _toggleEncrypt() async {
+    final s = context.read<AppState>();
+    if (!await _needOwnKey(s)) return;
+    setState(() => _encryptChoice = !_encryptOn(s));
+  }
+
+  Future<void> _toggleSign() async {
+    final s = context.read<AppState>();
+    if (!await _needOwnKey(s)) return;
+    setState(() => _sign = !_sign);
+  }
+
+  /// Hinweiszeile unter dem Kopf, wenn verschlüsselt wird bzw. Schlüssel fehlen.
+  Widget _pgpNotice(AppState s) {
+    final enc = _encryptOn(s);
+    final missing = _encryptChoice == true ? _keys(s).entries.where((e) => e.value == null).map((e) => e.key).toList() : <String>[];
+    if (!enc && !_signOn(s)) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final text = [
+      if (enc) '🔒 Wird verschlüsselt – KI und Online-Grammatik sind aus',
+      if (_signOn(s)) '✔ Wird signiert',
+      if (missing.isNotEmpty) '⚠ Kein Schlüssel für: ${missing.join(', ')}',
+    ].join('   ');
+    return Container(
+      key: const ValueKey('pgp-notice'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: missing.isNotEmpty ? cs.errorContainer : cs.secondaryContainer,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+    );
+  }
+
+  /// Vor dem Senden: fehlende Schlüssel klären, Passwort fürs Signieren abfragen.
+  /// Rückgabe (verschlüsseln, signieren) oder null = abbrechen.
+  Future<(bool, bool)?> _preparePgp(AppState s) async {
+    var enc = _encryptOn(s);
+    final sign = _signOn(s);
+    if (enc) {
+      final missing = _keys(s).entries.where((e) => e.value == null).map((e) => e.key).toList();
+      if (missing.isNotEmpty) {
+        final plain = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Verschlüsseln nicht möglich'),
+            content: Text('Für diese Empfänger fehlt ein öffentlicher Schlüssel:\n${missing.join('\n')}'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Unverschlüsselt senden')),
+            ],
+          ),
+        );
+        if (plain != true) return null;
+        enc = false;
+      }
+    }
+    if (sign && !s.pgp.isUnlocked(_accountId)) {
+      final pass = await askPassphrase(context, title: 'Passwort für deinen OpenPGP-Schlüssel');
+      if (pass == null) return null;
+      try {
+        s.pgp.unlock(_accountId, pass);
+      } catch (e) {
+        s.toast(pgpError(e));
+        return null;
+      }
+    }
+    return (enc, sign);
   }
 
   /// Formatleiste an Schreibmarke/Auswahl anpassen.
@@ -278,6 +407,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   Future<void> _polish() async {
     final s = context.read<AppState>();
+    if (_encryptOn(s)) {
+      s.toast('Bei verschlüsselten Mails ist die KI aus – der Text würde sonst unverschlüsselt an Claude gehen.');
+      return;
+    }
     final text = _body.text;
     final idx = text.indexOf(_quoteMarker);
     final own = idx >= 0 ? text.substring(0, idx) : text;
@@ -316,10 +449,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
       );
       if (ok != true) return;
     }
+    if (!mounted) return;
+    final pgp = await _preparePgp(s);
+    if (pgp == null) return;
+    final (enc, sign) = pgp;
     setState(() => _busy = true);
     try {
       final (html, images) = _htmlParts();
       await s.send(
+        pgpEncrypt: enc,
+        pgpSign: sign,
         html: html,
         inlineImages: images,
         accountId: _accountId,
@@ -331,7 +470,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         attachments: _attachments,
         replyTo: widget.mode == ComposeMode.forward ? null : widget.original,
       );
-      s.toast('E-Mail gesendet');
+      s.toast(enc ? 'E-Mail verschlüsselt gesendet' : (sign ? 'E-Mail signiert gesendet' : 'E-Mail gesendet'));
       if (mounted) Navigator.pop(context);
     } catch (e) {
       s.toast('Senden fehlgeschlagen: ${AppState.errText(e)}');
@@ -362,6 +501,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         attachments: _attachments,
         html: html,
         inlineImages: images,
+        pgpEncrypt: _encryptOn(s),
       );
       _initial = _snapshot();
       s.toast('Entwurf in „$folder“ gespeichert');
@@ -473,6 +613,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     final desktop = ComposeScreen.isDesktop;
+    // Verschlüsselte Mails nie an LanguageTool schicken
+    _bodySpell.grammar = _grammarWanted && !_encryptOn(s);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -590,6 +732,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
           actions: [
             _langButton(),
             IconButton(
+              key: const ValueKey('compose-encrypt'),
+              tooltip: _encryptOn(s) ? 'Verschlüsselung aus' : 'Verschlüsseln (OpenPGP)',
+              icon: Icon(_encryptOn(s) ? Icons.lock : Icons.lock_open,
+                  color: _encryptOn(s) ? Colors.green : null),
+              onPressed: _busy ? null : _toggleEncrypt,
+            ),
+            IconButton(
                 tooltip: 'Kontakte', icon: const Icon(Icons.contacts_outlined), onPressed: _busy ? null : _pickContact),
             IconButton(tooltip: 'Anhang', icon: const Icon(Icons.attach_file), onPressed: _busy ? null : _attach),
             PopupMenuButton<String>(
@@ -600,11 +749,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
                     _polish();
                   case 'draft':
                     _saveDraft();
+                  case 'sign':
+                    _toggleSign();
                 }
               },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'ai', child: Text('Mit KI überarbeiten')),
-                PopupMenuItem(value: 'draft', child: Text('Als Entwurf speichern')),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'ai', child: Text('Mit KI überarbeiten')),
+                const PopupMenuItem(value: 'draft', child: Text('Als Entwurf speichern')),
+                CheckedPopupMenuItem(value: 'sign', checked: _signOn(s), child: const Text('Digital signieren')),
               ],
             ),
             IconButton(tooltip: 'Senden', icon: const Icon(Icons.send), onPressed: _busy ? null : _send),
@@ -636,6 +788,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 ],
                 const Divider(),
                 _subjectField(),
+                _pgpNotice(s),
                 const Divider(),
                 _attachmentArea(),
                 _FormatBar(c: _body, compact: true, onAction: _fmt, onImage: _insertImage, onEmoji: _pickEmoji),
@@ -651,10 +804,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
   Widget _desktop(AppState s) {
     final theme = Theme.of(context);
     final cur = spellLanguage(_bodySpell.lang);
-    Widget tool(IconData icon, String label, VoidCallback? onPressed, {Key? key, String? tip}) => Tooltip(
+    Widget tool(IconData icon, String label, VoidCallback? onPressed, {Key? key, String? tip, Color? color}) => Tooltip(
           message: tip ?? label,
-          child: TextButton.icon(key: key, onPressed: _busy ? null : onPressed, icon: Icon(icon, size: 18), label: Text(label)),
+          child: TextButton.icon(
+              key: key, onPressed: _busy ? null : onPressed, icon: Icon(icon, size: 18, color: color), label: Text(label)),
         );
+    final enc = _encryptOn(s);
+    final sign = _signOn(s);
     final main = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       // Symbolleiste
       Padding(
@@ -669,6 +825,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
           tool(_spellOn ? Icons.spellcheck : Icons.spellcheck_outlined, 'Rechtschr.', _toggleSpell,
               tip: _spellOn ? 'Rechtschreibprüfung ausschalten' : 'Rechtschreibprüfung einschalten'),
           _langButton(),
+          tool(enc ? Icons.lock : Icons.lock_open, 'Verschlüsselung', _toggleEncrypt,
+              key: const ValueKey('compose-encrypt'),
+              color: enc ? Colors.green : null,
+              tip: enc ? 'Wird verschlüsselt (OpenPGP) – klicken zum Ausschalten' : 'Verschlüsseln (OpenPGP)'),
+          tool(sign ? Icons.verified : Icons.verified_outlined, 'Signieren', _toggleSign,
+              key: const ValueKey('compose-sign'),
+              color: sign ? Colors.green : null,
+              tip: sign ? 'Wird digital signiert – klicken zum Ausschalten' : 'Digital signieren (OpenPGP)'),
           tool(Icons.save_outlined, 'Speichern', _saveDraft, tip: 'Als Entwurf speichern (Strg+S)'),
           tool(Icons.contacts_outlined, 'Kontakte', () => setState(() => _showContacts = !_showContacts),
               key: const ValueKey('compose-contacts')),
@@ -715,6 +879,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ],
           const SizedBox(height: 8),
           _subjectField(outlined: true),
+          _pgpNotice(s),
           _attachmentArea(),
         ]),
       ),
@@ -829,10 +994,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ], child: const Text('Format')),
         SubmenuButton(menuChildren: [
           check('Rechtschreibprüfung', _spellOn, _toggleSpell),
-          check('Grammatik online prüfen (LanguageTool)', _bodySpell.grammar, () {
-            setState(() => _bodySpell.grammar = !_bodySpell.grammar);
+          check('Grammatik online prüfen (LanguageTool)', _grammarWanted, () {
+            setState(() => _grammarWanted = !_grammarWanted);
             _body.recheck();
           }),
+          const Divider(),
+          check('Verschlüsseln (OpenPGP)', _encryptOn(context.read<AppState>()), _toggleEncrypt),
+          check('Digital signieren', _signOn(context.read<AppState>()), _toggleSign),
           SubmenuButton(menuChildren: [
             for (final l in spellLanguages) check(l.name, l.tag == cur.tag, () => _setSpellLang(l.tag)),
           ], child: const Text('Sprache')),

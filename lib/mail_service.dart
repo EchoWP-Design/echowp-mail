@@ -480,10 +480,10 @@ class MailService {
     }
   }
 
-  Future<void> send(EchoAccount a, em.MimeMessage msg) async {
+  Future<void> send(EchoAccount a, em.MimeMessage msg, {List<em.MailAddress>? recipients}) async {
     final smtp = await _smtpConnect(a);
     try {
-      await smtp.sendMessage(msg);
+      await smtp.sendMessage(msg, recipients: recipients);
     } finally {
       try {
         await smtp.quit();
@@ -503,7 +503,10 @@ class MailService {
     String? references,
     String? html,
     List<(String cid, String name, String mimeType, Uint8List bytes)> inlineImages = const [],
+    /// Texte quoted-printable statt 8bit (Pflicht für signierte Mails, RFC 3156)
+    bool sevenBit = false,
   }) {
+    final te = sevenBit ? em.TransferEncoding.quotedPrintable : em.TransferEncoding.automatic;
     final b = html == null
         ? em.MessageBuilder()
         : (attachments.isEmpty
@@ -515,16 +518,16 @@ class MailService {
     if (bcc.isNotEmpty) b.bcc = bcc;
     b.subject = stripLineBreaks(subject);
     if (html == null) {
-      b.addTextPlain(text);
+      b.addTextPlain(text, transferEncoding: te);
     } else {
       // Text + HTML (multipart/alternative), Bilder im HTML als multipart/related mit Content-ID
       final alt = attachments.isEmpty ? b : b.addPart(mediaSubtype: em.MediaSubtype.multipartAlternative);
-      alt.addTextPlain(text);
+      alt.addTextPlain(text, transferEncoding: te);
       if (inlineImages.isEmpty) {
-        alt.addTextHtml(html);
+        alt.addTextHtml(html, transferEncoding: te);
       } else {
         final rel = alt.addPart(mediaSubtype: em.MediaSubtype.multipartRelated);
-        rel.addTextHtml(html);
+        rel.addTextHtml(html, transferEncoding: te);
         for (final (cid, name, mime, bytes) in inlineImages) {
           final safe = safeFileName(name);
           final part = rel.addBinary(bytes, em.MediaType.fromText(mime),

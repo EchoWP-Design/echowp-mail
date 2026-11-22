@@ -20,6 +20,7 @@ import 'notifications.dart';
 import 'push.dart';
 import 'storage.dart';
 import 'contacts.dart';
+import 'pgp.dart';
 
 int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
 
@@ -62,6 +63,8 @@ class AppState extends ChangeNotifier {
   final drive = DriveSync();
   /// Adressbuch und Gedächtnis bereits verwendeter Adressen.
   final book = AddressBook();
+  /// OpenPGP: eigene Schlüssel (sicherer Speicher) und Entsperrung je Sitzung.
+  final pgp = PgpService();
 
   // ---------------------------------------------------------------- Laden
 
@@ -69,6 +72,9 @@ class AppState extends ChangeNotifier {
     accounts = await _storage.loadAccounts();
     settings = await _storage.loadSettings();
     await book.load();
+    try {
+      await pgp.load(accounts.map((a) => a.id));
+    } catch (_) {}
     await drive.load();
     await reloadNew();
     for (final a in accounts) {
@@ -701,13 +707,17 @@ class AppState extends ChangeNotifier {
     MailDetail? replyTo,
     String? html,
     List<(String, String, String, Uint8List)> inlineImages = const [],
+    bool pgpEncrypt = false,
+    bool pgpSign = false,
   }) async {
     final acc = account(accountId)!;
     final toList = parseAddresses(to);
     if (toList.isEmpty) throw const FormatException('Bitte mindestens einen Empfänger angeben.');
-    final msg = MailService.buildMessage(
+    final pgpOn = pgpEncrypt || pgpSign;
+    var msg = MailService.buildMessage(
       html: html,
       inlineImages: inlineImages,
+      sevenBit: pgpOn,
       from: acc,
       to: toList,
       cc: parseAddresses(cc),
@@ -718,7 +728,38 @@ class AppState extends ChangeNotifier {
       inReplyTo: replyTo?.messageId,
       references: replyTo?.references,
     );
-    await mail.send(acc, msg);
+    List<em.MailAddress>? rcpt;
+    if (pgpOn) {
+      // PGP/MIME: Bcc nicht in die Mail schreiben, nur beim Versand als Empfänger angeben
+      final ccList = parseAddresses(cc);
+      final bccList = parseAddresses(bcc);
+      rcpt = [...toList, ...ccList, ...bccList];
+      final plain = MailService.buildMessage(
+        from: acc,
+        to: toList,
+        cc: ccList,
+        subject: subject,
+        text: body,
+        attachments: attachments,
+        inReplyTo: replyTo?.messageId,
+        references: replyTo?.references,
+        html: html,
+        inlineImages: inlineImages,
+        sevenBit: true,
+      );
+      final keys = pgpEncrypt ? recipientKeys(rcpt.map((a) => a.email)).values.whereType<String>().toList() : <String>[];
+      if (pgpEncrypt && keys.length < rcpt.map((a) => a.email.toLowerCase()).toSet().length) {
+        throw const FormatException('Nicht für alle Empfänger ist ein OpenPGP-Schlüssel vorhanden.');
+      }
+      msg = em.MimeMessage.parseFromText(pgp.protect(
+        renderedMessage: plain.renderMessage(),
+        accountId: accountId,
+        encrypt: pgpEncrypt,
+        sign: pgpSign,
+        recipientKeys: keys,
+      ));
+    }
+    await mail.send(acc, msg, recipients: rcpt);
     // Gedächtnis: Empfänger für spätere Vorschläge merken
     book.remember([
       for (final a in [...toList, ...parseAddresses(cc), ...parseAddresses(bcc)]) (a.personalName ?? '', a.email)
@@ -751,6 +792,7 @@ class AppState extends ChangeNotifier {
     List<(String, Uint8List)> attachments = const [],
     String? html,
     List<(String, String, String, Uint8List)> inlineImages = const [],
+    bool pgpEncrypt = false,
   }) async {
     final acc = account(accountId)!;
     final drafts = await ensureRoleFolder(accountId, 'drafts');
@@ -766,8 +808,55 @@ class AppState extends ChangeNotifier {
       html: html,
       inlineImages: inlineImages,
     );
-    await mail.conn(accountId).append(drafts.path, msg, flags: const [em.MessageFlags.seen, em.MessageFlags.draft]);
+    // Verschlüsselt schreiben → Entwurf nur für sich selbst verschlüsselt ablegen
+    final stored = pgpEncrypt && pgp.hasKey(accountId)
+        ? em.MimeMessage.parseFromText(pgp.protect(
+            renderedMessage: msg.renderMessage(), accountId: accountId, encrypt: true, sign: false))
+        : msg;
+    await mail.conn(accountId).append(drafts.path, stored, flags: const [em.MessageFlags.seen, em.MessageFlags.draft]);
     return drafts.name;
+  }
+
+  // ---------------------------------------------------------------- OpenPGP
+
+  /// Oberfläche neu zeichnen (z. B. nach Schlüsseländerung).
+  void refreshUi() => notifyListeners();
+
+  /// Öffentliche Schlüssel der Empfänger (Adressbuch oder eigene Konten); `null` = fehlt.
+  Map<String, String?> recipientKeys(Iterable<String> emails) {
+    final out = <String, String?>{};
+    for (final e in emails) {
+      final k = e.trim().toLowerCase();
+      if (k.isEmpty || out.containsKey(k)) continue;
+      String? key = book.byEmail(k)?.pgpKey;
+      if (key == null) {
+        for (final a in accounts) {
+          if (a.email.toLowerCase() == k) key = pgp.ownPublicArmored(a.id);
+        }
+      }
+      out[k] = key;
+    }
+    return out;
+  }
+
+  /// Öffentlichen Schlüssel übernehmen: an passende Kontakte hängen, sonst Kontakt anlegen.
+  Future<List<String>> importPublicKey(String armored) async {
+    final info = PgpService.readPublicInfo(armored);
+    final pub = PgpService.publicOnly(armored);
+    final done = <String>[];
+    for (final email in info.emails) {
+      var c = book.byEmail(email);
+      if (c == null) {
+        final uid = info.userIds.firstWhere((u) => u.toLowerCase().contains(email), orElse: () => '');
+        final name = uid.contains('<') ? uid.substring(0, uid.indexOf('<')).trim() : '';
+        c = Contact(name: name, emails: [email]);
+      }
+      c.pgpKey = pub;
+      await saveContact(c);
+      done.add(email);
+    }
+    if (done.isEmpty) throw const PgpException('Der Schlüssel enthält keine E-Mail-Adresse.');
+    return done;
   }
 
   // ---------------------------------------------------------------- Adressbuch

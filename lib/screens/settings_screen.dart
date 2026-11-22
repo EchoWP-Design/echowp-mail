@@ -12,6 +12,7 @@ import '../widgets/common.dart';
 import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
 import 'drive_sync_screen.dart';
+import 'pgp_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -128,6 +129,17 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Benachrichtigungen'),
           value: st.notifications,
           onChanged: (v) => s.updateSettings((x) => x.notifications = v),
+        ),
+        header('Verschlüsselung'),
+        ListTile(
+          key: const ValueKey('settings-pgp'),
+          leading: const Icon(Icons.enhanced_encryption_outlined),
+          title: const Text('OpenPGP'),
+          subtitle: Text(s.accounts.any((a) => s.pgp.hasKey(a.id))
+              ? 'Eingerichtet – Mails verschlüsseln und signieren'
+              : 'Schlüssel erzeugen oder importieren – Mails verschlüsseln und signieren'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PgpScreen())),
         ),
         header('Rechtschreibung & Grammatik'),
         SwitchListTile(
@@ -274,7 +286,7 @@ class SettingsScreen extends StatelessWidget {
         header('Über'),
         const ListTile(
           leading: Icon(Icons.info_outline),
-          title: Text('EchoWP-Mail 5.0'),
+          title: Text('EchoWP-Mail 5.1'),
           subtitle: Text('Eigener Mail-Client für Android und Windows'),
         ),
         const SizedBox(height: 32),
