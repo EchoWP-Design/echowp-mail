@@ -1718,6 +1718,7 @@ void main() {
       final dir = await Directory.systemTemp.createTemp('rnp');
       addTearDown(() => dir.delete(recursive: true));
       final home = '${dir.path}/home';
+      Directory(home).createSync();
       await run('rnpkeys', ['--homedir', home, '--generate-key', '--userid', 'Rnp <rnp@example.de>', '--expert', '--password='],
           stdin: '22\n');
       File('${dir.path}/me.asc').writeAsStringSync(s.pgp.ownPublicArmored('a1')!);
