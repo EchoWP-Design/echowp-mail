@@ -2,7 +2,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 4.1** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 5.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -35,9 +35,16 @@ Updates werden einfach über die vorhandene App installiert (gleiche Signatur, s
 - Windows: **Anhänge per Drag & Drop** – Datei ins Schreiben-Fenster ziehen; auf das Hauptfenster gezogen öffnet sich eine neue Mail
 - Breite Bildschirme: zwei- bzw. dreispaltige Ansicht mit verschiebbarem Trenner
 
+### Schreiben (formatierte Mails)
+- **Windows** im Stil von Thunderbird/Betterbird: Menüleiste (Datei, Bearbeiten, Ansicht, Einfügen, Format, Optionen, Extras, Hilfe), Symbolleiste (Senden, Rechtschr., Speichern, Kontakte, KI, Anhängen), Absender mit Kontofarbe, Kopie (CC) / Blindkopie (BCC), Kontakte-Leiste
+- Formatleiste: Absatzformat (Überschriften, Vorformatiert), Schriftart, Schriftgröße, Schriftfarbe, Textmarker, Fett/Kursiv/Unterstrichen (Strg+B/I/U), Formatierung entfernen, Aufzählung, Nummerierung, Einzug, Ausrichtung, Bild einfügen, Emojis
+- **Android** vereinfacht: kompakte Formatleiste (Farbe, Textmarker, Fett/Kursiv/Unterstrichen, Listen, Bild, Emoji), Kontakte-Auswahl
+- Versand als HTML mit Text-Alternative; eingefügte Bilder werden eingebettet (Content-ID). Unformatierte Mails gehen weiter als reiner Text
+- Entwurf speichern (Strg+S) in den Ordner „Entwürfe“ des Kontos
+
 ### Rechtschreibung und Grammatik
 - Prüfung beim Schreiben (Betreff und Text): Rechtschreibung offline über das Wörterbuch von Android bzw. Windows, Grammatik und Stil zusätzlich online über [LanguageTool](https://languagetool.org) (abschaltbar)
-- Fehler rot unterstrichen; Rechtsklick bzw. langes Drücken zeigt Vorschläge, „Ignorieren“ und „Zum Wörterbuch hinzufügen“
+- Rechtschreibfehler rot, Grammatikhinweise im Mailtext blau unterstrichen; Rechtsklick bzw. langes Drücken zeigt Vorschläge, „Ignorieren“ und „Zum Wörterbuch hinzufügen“
 - Sprache je Mail umschaltbar (Knopf oben rechts), Standardsprache in den Einstellungen: Deutsch (auch Schweiz), Englisch (US/UK), Spanisch, Französisch, Italienisch, Niederländisch, Portugiesisch, Dänisch, Schwedisch, Polnisch, Katalanisch, Griechisch, Russisch, Ukrainisch
 - Datenschutz: an LanguageTool geht nur der eigene Mailtext ohne zitierte Originalmail, erst nach einer Tipp-Pause
 
@@ -66,7 +73,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **4.1** | Rechtschreib- und Grammatikprüfung mit Korrekturvorschlägen im Kontextmenü, 17 Sprachen, eigenes Wörterbuch |
+| **5.0** | Neues Schreiben-Fenster: unter Windows wie Betterbird (Menü-, Symbol- und Formatleiste, Kontakte-Leiste, CC/BCC), am Handy vereinfacht; formatierte HTML-Mails mit Bildern; Entwürfe speichern |
+| 4.1 | Rechtschreib- und Grammatikprüfung mit Korrekturvorschlägen im Kontextmenü, 17 Sprachen, eigenes Wörterbuch |
 | 4.0 | „Alle Posteingänge“ heißt „Aktuell“, Mails in der Farbe ihres Postfachs; Abruf mit Zeitgrenze (Anzeige max. 5 s, hängende Verbindungen werden nach 60 s neu aufgebaut); Esc schließt nur Adressvorschläge |
 | 3.5 | Adressbuch, Adress-Gedächtnis mit Vorschlägen, Absender per Knopf ins Adressbuch |
 | 3.4 | Stern-Markierung statt Fahne, Stern-Mails bleiben in der Sammelansicht; Anhänge per Drag & Drop (Windows) |
