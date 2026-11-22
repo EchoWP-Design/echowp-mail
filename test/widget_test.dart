@@ -1726,6 +1726,11 @@ void main() {
       final rnpPub = await run('rnpkeys', ['--homedir', home, '--export-key', 'rnp@example.de']);
       final pubArmor = rnpPub.substring(rnpPub.indexOf('-----BEGIN PGP PUBLIC KEY BLOCK-----'),
           rnpPub.indexOf('-----END PGP PUBLIC KEY BLOCK-----') + 34);
+      try {
+        pg.OpenPGP.readPublicKey(pubArmor);
+      } catch (e, st) {
+        fail('RNP-Schlüssel nicht lesbar: $e\n$st\n$pubArmor');
+      }
       await s.importPublicKey(pubArmor);
 
       // Betterbird → EchoWP-Mail
