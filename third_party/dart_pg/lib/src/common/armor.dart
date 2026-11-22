@@ -73,7 +73,8 @@ final class Armor {
     final textLines = <String>[];
     final dataLines = <String>[];
 
-    final lines = armored.split('\n');
+    // ECHOWP-PATCH: auch CRLF/CR (Windows, RNP/Thunderbird, Mail-Anhänge)
+    final lines = armored.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
     for (final line in lines) {
       if (type == null && splitPattern.hasMatch(line)) {
         type = ArmorType.fromBegin(line);

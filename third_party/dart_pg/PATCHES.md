@@ -1,7 +1,7 @@
 # dart_pg 2.0.0 – EchoWP-Patches
 
 Kopie von https://github.com/web-of-trust/dart-pg (Tag 2.0.0, BSD-3-Lizenz, siehe LICENSE).
-Alle Änderungen (7 Patches) sind im Code mit `ECHOWP-PATCH` markiert.
+Alle Änderungen (8 Patches) sind im Code mit `ECHOWP-PATCH` markiert.
 
 1. `packet/signature.dart` `_keySubpackets`: v4-Schlüssel werben nur mit SEIPDv1 (Features 0x01) und ohne
    bevorzugte AEAD-Algorithmen. Vorher 0x0B (AEAD + SEIPDv2) → Thunderbird/Betterbird: „Einige der importierten
@@ -18,5 +18,7 @@ Alle Änderungen (7 Patches) sind im Code mit `ECHOWP-PATCH` markiert.
    Vorher waren Signaturen aus Betterbird/Thunderbird in verschlüsselten Mails „ungültig“.
 7. `packet/signature.dart` `expirationTime`: Ablauf = Erstellung + Sekunden, 0 = nie. Vorher als festes Datum
    gelesen → Signaturen aus Thunderbird/Betterbird (RNP schreibt immer 0) galten als abgelaufen = „ungültig“.
+8. `common/armor.dart` `Armor.decode`: CRLF/CR-Zeilenenden akzeptieren. Vorher „Unknown ASCII armor type“ bei
+   Schlüsseln aus Betterbird/RNP und Windows-Dateien.
 
 Bei einem Update von dart_pg: neue Version hierher kopieren und die drei Patches erneut prüfen.
