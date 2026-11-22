@@ -1,27 +1,26 @@
-# Übergabe – 2026-11-22, 23:40
+# Übergabe – 2026-11-22, 23:55
 
 ## Ziel der Sitzung
-OpenPGP: Lesen (v5.2) und echte Kompatibilität mit Betterbird (v5.2.1, v5.2.2) nach Jans Praxistests.
+OpenPGP fertigstellen: Lesen (v5.2), Betterbird-Kompatibilität (v5.2.1/5.2.2), Kennzeichnung in der Liste → v6.0.
 
 ## Erledigt
 - v5.2 OpenPGP lesen – 8ff5ec1
-- v5.2.1 dart_pg gepatcht in `third_party/dart_pg` (keine AEAD-Werbung, kein Auto-AEAD, Ed25519-Nullbytes) – 3bdd182, 5a093ed
-- v5.2.2 Signaturen aus Betterbird gültig (Ablaufzeit 0 = nie), Textsignaturen, Armor mit CRLF; CI installiert rnp + gnupg, Gegentests in beide Richtungen – 781a2d8 … 7acf9b6
-- Release v5.2.2-build-48 (arm64 versionCode 2021), 87/87 Tests
-- Jans Praxistest (vor 5.2.2): EchoWP → Betterbird ok (entschlüsselt, Signatur); Betterbird → EchoWP entschlüsselt, Signatur fälschlich „ungültig“ → behoben
+- v5.2.1/5.2.2 dart_pg gepatcht in `third_party/dart_pg` (8 Patches, PATCHES.md), CI-Gegentests mit rnp + gnupg – bis 7acf9b6
+- Jan hat am 22.11. bestätigt: Betterbird ↔ EchoWP-Mail funktioniert in beide Richtungen (verschlüsselt, Signatur gültig)
+- v6.0: Schloss/Siegel in Mailliste und „Aktuell“ (`MailItem.pgp` aus BODYSTRUCTURE), geschützter Betreff nach Entschlüsseln in der Liste (`MailItem.displaySubject`, nur Arbeitsspeicher, beim Sperren vergessen), Signaturteile kein Anhang – a837049
+- Release v6.0.0-build-49 (arm64 versionCode 2022), 88/88 Tests
 
 ## Offen / nächster Schritt
-1. Jan: v5.2.2 installieren, „PGP Test“ aus Betterbird erneut öffnen → Signatur sollte gültig sein; „Schlüssel übernehmen“ beim Betterbird-Anhang testen
-2. Prüfen, ob Jans web.de-Schlüssel in Betterbird (0x8F4698AFF2A2A52F) derselbe ist wie in EchoWP-Mail
-3. Ideen: Autocrypt/WKD, Schlüssel-Ablauf/Widerruf, Inline-PGP-Anhänge
+1. Jans Rückmeldung zu v6.0 abwarten
+2. Ideen: Autocrypt/WKD, Schlüssel-Ablauf/Widerruf, Inline-PGP-Anhänge; Inline-PGP ist in der Liste nicht erkennbar (nur PGP/MIME)
 
 ## Entscheidungen
-- dart_pg vendort (PATCHES.md, 8 Patches); Interop wird mit echtem RNP/GnuPG in CI geprüft (Tests überspringen sich ohne die Programme)
-- Entschlüsselte Inhalte nie an KI; Antworten auf verschlüsselte Mails wieder verschlüsselt
+- Entschlüsselter Betreff wird nie gespeichert und nie in Benachrichtigungen verwendet (`subject` bleibt „...“)
+- dart_pg vendort; Interop wird in CI mit echtem RNP/GnuPG geprüft
 
 ## Bekannte Probleme
 - Vor 5.2.1 erzeugte Schlüssel werben mit AEAD (nur Neuerzeugung hilft)
-- Test-Diagnose `fail('RNP-Schlüssel nicht lesbar…')` im RNP-Gegentest kann bleiben
+- Windows-Teile nur in CI gebaut
 
 ## Zustand
-- Branch `main`, letzter Code-Commit 7acf9b6; Run 45076940494 grün
+- Branch `main`, letzter Code-Commit a837049; Run 45078782492 grün
