@@ -1718,6 +1718,8 @@ void main() {
           hasAttachments: false,
         );
 
+    final bobAcc = EchoAccount(id: 'b1', name: 'Bob', email: 'bob@example.de', imapHost: 'x', smtpHost: 'x', color: 0);
+
     /// Bob schreibt an das Testkonto (a1 / test@example.de).
     Future<(AppState, PgpService)> receiver() async {
       SharedPreferences.setMockInitialValues({});
@@ -1732,7 +1734,7 @@ void main() {
 
     String bobWrites(PgpService bob, AppState s, {required bool encrypt, required bool sign, String subject = 'Geheim'}) {
       final plain = MailService.buildMessage(
-        from: EchoAccount(id: 'b1', name: 'Bob', email: 'bob@example.de', imapHost: 'x', smtpHost: 'x', color: 0),
+        from: bobAcc,
         to: parseAddresses('test@example.de'),
         subject: subject,
         text: 'Hallo Test, äöü ß – Zeile 2',
@@ -1823,7 +1825,7 @@ void main() {
         signingKeys: [bobKey],
       ).armor();
       final m1 = MailService.buildMessage(
-        from: _acc(),
+        from: bobAcc,
         to: parseAddresses('test@example.de'),
         subject: 'Inline',
         text: 'Vorher\n$enc\nNachher',
@@ -1841,7 +1843,7 @@ void main() {
 
       final clear = pg.OpenPGP.signCleartext('Nur signiert, Zeile 1\nZeile 2', [bobKey]).armor();
       final m2 = MailService.buildMessage(
-        from: _acc(),
+        from: bobAcc,
         to: parseAddresses('test@example.de'),
         subject: 'Klartext',
         text: clear,
