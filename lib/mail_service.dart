@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:enough_mail/enough_mail.dart' as em;
 
 import 'models.dart';
+import 'pgp.dart';
 
 /// Serialisiert Zugriffe auf eine IMAP-Verbindung (IMAP kennt nur einen ausgewählten Ordner).
 /// Bleibt eine Mail in „Aktuell“? Ungelesen oder mit Stern.
@@ -28,9 +29,15 @@ class PageResult {
 
 class MailDetail {
   final MailItem item;
+
+  /// Vollständige Mail wie vom Server (Kopfzeilen, Antworten).
   final em.MimeMessage mime;
+
+  /// Teil mit dem angezeigten Inhalt (bei entschlüsselten Mails die innere Nachricht).
+  final em.MimeMessage content;
   final String to;
   final String cc;
+  final String subject;
   final String? html;
   final String text;
   final List<AttachmentInfo> attachments;
@@ -40,34 +47,57 @@ class MailDetail {
   final List<em.MailAddress> replyToAddrs;
   final String? messageId;
   final String? references;
+  final PgpStatus pgp;
 
-  MailDetail._(this.item, this.mime, this.to, this.cc, this.html, this.text, this.attachments, this.fromAddrs,
-      this.toAddrs, this.ccAddrs, this.replyToAddrs, this.messageId, this.references);
+  MailDetail._(this.item, this.mime, this.content, this.to, this.cc, this.subject, this.html, this.text,
+      this.attachments, this.fromAddrs, this.toAddrs, this.ccAddrs, this.replyToAddrs, this.messageId, this.references,
+      this.pgp);
 
-  factory MailDetail.fromMime(MailItem item, em.MimeMessage m) {
+  static const _pgpTypes = {'application/pgp-signature', 'application/pgp-encrypted', 'application/pgp-keys-version'};
+
+  /// [content]: innere (entschlüsselte) Nachricht, [plainText]: entschlüsselter/geprüfter Inline-Text.
+  factory MailDetail.fromMime(MailItem item, em.MimeMessage m,
+      {em.MimeMessage? content, String? plainText, PgpStatus? pgp}) {
     String fmt(List<em.MailAddress>? l) => (l ?? const [])
         .map((a) => (a.personalName?.isNotEmpty ?? false) ? '${a.personalName} <${a.email}>' : a.email)
         .join(', ');
+    final c = content ?? m;
     String? html;
     String text = '';
     try {
-      html = m.decodeTextHtmlPart();
+      html = c.decodeTextHtmlPart();
     } catch (_) {}
     try {
-      text = m.decodeTextPlainPart() ?? '';
+      text = c.decodeTextPlainPart() ?? '';
     } catch (_) {}
     if (text.trim().isEmpty && html != null) text = htmlToText(html);
+    final status = pgp ?? PgpStatus(PgpService.detect(m, text));
+    if (plainText != null) {
+      text = plainText;
+      html = null; // Inline-PGP: nur der geprüfte/entschlüsselte Text zählt
+    }
+    final hideAll = status.isEncrypted && !status.decrypted && content == null && plainText == null &&
+        m.getHeaderContentType()?.mediaType.text.toLowerCase() == 'multipart/encrypted';
     final atts = <AttachmentInfo>[];
-    try {
-      for (final c in m.findContentInfo()) {
-        atts.add(AttachmentInfo(c.fetchId, safeFileName(c.fileName ?? 'Anhang'), c.size ?? 0));
-      }
-    } catch (_) {}
+    if (!hideAll) {
+      try {
+        for (final i in c.findContentInfo()) {
+          if (_pgpTypes.contains(i.mediaType?.text.toLowerCase())) continue;
+          atts.add(AttachmentInfo(i.fetchId, safeFileName(i.fileName ?? 'Anhang'), i.size ?? 0));
+        }
+      } catch (_) {}
+    }
+    // Geschützter Betreff (Thunderbird schreibt außen oft nur „...“)
+    var subject = item.subject;
+    final inner = content?.decodeSubject();
+    if (inner != null && inner.trim().isNotEmpty) subject = inner.trim();
     return MailDetail._(
       item,
       m,
+      c,
       fmt(m.to),
       fmt(m.cc),
+      subject,
       html,
       text,
       atts,
@@ -77,23 +107,34 @@ class MailDetail {
       m.replyTo ?? const [],
       m.getHeaderValue('message-id'),
       m.getHeaderValue('references'),
+      status,
     );
   }
 
+  /// Gleiche Mail mit entschlüsseltem/geprüftem Inhalt.
+  MailDetail withPgp(PgpOpened o, PgpStatus status) =>
+      MailDetail.fromMime(item, mime, content: o.mime, plainText: o.text, pgp: status);
+
+  /// Gleiche Mail, nur mit geändertem Status (z. B. Fehlermeldung).
+  MailDetail withStatus(PgpStatus status) => MailDetail._(item, mime, content, to, cc, subject, html, text,
+      attachments, fromAddrs, toAddrs, ccAddrs, replyToAddrs, messageId, references, status);
+
   Uint8List? attachmentBytes(AttachmentInfo a) {
     try {
-      return mime.getPart(a.fetchId)?.decodeContentBinary();
+      return content.getPart(a.fetchId)?.decodeContentBinary();
     } catch (_) {
       return null;
     }
   }
 
   /// Text für KI-Anfragen (gekürzt).
+  /// Verschlüsselt empfangene Mails gehen nie an die KI.
   String promptText({int maxChars = 12000}) {
+    if (pgp.confidential) throw const PgpException('Verschlüsselte Mails werden nicht an die KI gegeben.');
     var body = text.trim();
     if (body.length > maxChars) body = '${body.substring(0, maxChars)}\n[… gekürzt]';
     return 'Von: ${item.fromName} <${item.fromEmail}>\nAn: $to\n'
-        '${cc.isNotEmpty ? 'Cc: $cc\n' : ''}Datum: ${item.date}\nBetreff: ${item.subject}\n\n$body';
+        '${cc.isNotEmpty ? 'Cc: $cc\n' : ''}Datum: ${item.date}\nBetreff: $subject\n\n$body';
   }
 }
 

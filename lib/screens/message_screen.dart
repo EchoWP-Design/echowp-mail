@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app_state.dart';
 import '../mail_service.dart';
 import '../models.dart';
+import '../pgp.dart';
 import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
 import 'compose_screen.dart';
@@ -191,6 +192,10 @@ class _MessageViewState extends State<MessageView> {
     final s = context.read<AppState>();
     final d = _detail;
     if (d == null) return;
+    if (d.pgp.confidential) {
+      s.toast('Verschlüsselte Mails werden nicht an die KI gegeben.');
+      return;
+    }
     setState(() => _aiBusy = kind);
     try {
       switch (kind) {
@@ -353,7 +358,7 @@ class _MessageViewState extends State<MessageView> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          Text(item.subject, style: theme.textTheme.titleLarge),
+          Text(d.subject, style: theme.textTheme.titleLarge),
           const SizedBox(height: 12),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SenderAvatar(name: item.sender),
@@ -380,6 +385,10 @@ class _MessageViewState extends State<MessageView> {
                 );
               }),
           ]),
+          if (d.pgp.kind != PgpKind.none) ...[
+            const SizedBox(height: 12),
+            _pgpBar(s, d),
+          ],
           if (d.attachments.isNotEmpty) ...[
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 4, children: [
@@ -408,12 +417,15 @@ class _MessageViewState extends State<MessageView> {
                 ),
             ]),
           ],
-          const SizedBox(height: 12),
-          _aiCard(s, d),
+          // Verschlüsselte Mails gehen nie an die KI
+          if (!d.pgp.confidential) ...[
+            const SizedBox(height: 12),
+            _aiCard(s, d),
+          ],
           const SizedBox(height: 12),
           const Divider(),
           const SizedBox(height: 12),
-          if (_showHtml && d.html != null && !_loadImages && (_remoteImg.hasMatch(d.html!) || _remoteCss.hasMatch(d.html!)))
+          if (_showHtml && d.html != null && !_loadImages && !(d.pgp.isEncrypted && !d.pgp.decrypted) && (_remoteImg.hasMatch(d.html!) || _remoteCss.hasMatch(d.html!)))
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(children: [
@@ -423,7 +435,9 @@ class _MessageViewState extends State<MessageView> {
                 TextButton(onPressed: () => setState(() => _loadImages = true), child: const Text('Bilder laden')),
               ]),
             ),
-          if (_showHtml && d.html != null)
+          if (d.pgp.isEncrypted && !d.pgp.decrypted)
+            const SizedBox.shrink()
+          else if (_showHtml && d.html != null)
             Container(
               color: Colors.white,
               padding: const EdgeInsets.all(8),
@@ -440,6 +454,101 @@ class _MessageViewState extends State<MessageView> {
             Text(d.text, style: theme.textTheme.bodyLarge),
         ],
       ),
+    );
+  }
+
+  /// Entschlüsseln auf Knopfdruck (fragt bei gesperrtem Schlüssel das Passwort ab).
+  Future<void> _decrypt(AppState s, MailDetail d) async {
+    final acc = d.item.accountId;
+    if (!s.pgp.isUnlocked(acc)) {
+      final pass = await askPassphrase(context, title: 'Passwort für deinen OpenPGP-Schlüssel');
+      if (pass == null || !mounted) return;
+      try {
+        s.pgp.unlock(acc, pass);
+      } catch (e) {
+        s.toast(pgpError(e));
+        return;
+      }
+    }
+    MailDetail next;
+    try {
+      next = s.decryptDetail(d);
+    } on PgpException catch (e) {
+      next = d.withStatus(d.pgp.copyWith(error: e.message));
+    }
+    if (!mounted) return;
+    setState(() {
+      _detail = next;
+      _future = Future.value(next);
+    });
+  }
+
+  Widget _pgpBar(AppState s, MailDetail d) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final p = d.pgp;
+    final rows = <Widget>[];
+    Widget line(IconData icon, Color color, String text, {Key? key}) => Row(key: key, children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
+        ]);
+    if (p.isEncrypted) {
+      if (p.decrypted) {
+        rows.add(line(Icons.lock, cs.primary, 'Verschlüsselt – entschlüsselt angezeigt', key: const ValueKey('pgp-state-decrypted')));
+      } else {
+        rows.add(line(Icons.lock, cs.primary, 'Verschlüsselte Nachricht', key: const ValueKey('pgp-state-encrypted')));
+        if (s.pgp.hasKey(d.item.accountId)) {
+          rows.add(Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                key: const ValueKey('pgp-decrypt'),
+                onPressed: () => _decrypt(s, d),
+                icon: const Icon(Icons.lock_open, size: 18),
+                label: const Text('Entschlüsseln'),
+              ),
+            ),
+          ));
+        } else {
+          rows.add(Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text('Für dieses Konto ist kein eigener OpenPGP-Schlüssel eingerichtet '
+                '(Einstellungen → OpenPGP).', style: theme.textTheme.bodySmall),
+          ));
+        }
+      }
+    }
+    final who = p.signer == null ? '' : ' – ${p.signer}';
+    switch (p.sig) {
+      case PgpSig.valid:
+        rows.add(line(Icons.verified, Colors.green.shade600, 'Signatur gültig$who', key: const ValueKey('pgp-sig-valid')));
+      case PgpSig.invalid:
+        rows.add(line(Icons.warning_amber, cs.error, 'Signatur ungültig – Inhalt wurde verändert oder Signatur beschädigt$who',
+            key: const ValueKey('pgp-sig-invalid')));
+      case PgpSig.unknownKey:
+        rows.add(line(Icons.help_outline, cs.onSurfaceVariant,
+            'Signiert – Schlüssel des Absenders unbekannt (öffentlichen Schlüssel ins Adressbuch übernehmen)',
+            key: const ValueKey('pgp-sig-unknown')));
+      case PgpSig.none:
+        break;
+    }
+    if (p.error != null) {
+      rows.add(Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(p.error!, key: const ValueKey('pgp-error'), style: theme.textTheme.bodySmall?.copyWith(color: cs.error)),
+      ));
+    }
+    return Container(
+      key: const ValueKey('pgp-bar'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: p.sig == PgpSig.invalid ? cs.errorContainer : cs.secondaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows),
     );
   }
 

@@ -91,6 +91,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
     _spellOn = st.spellCheck;
     _grammarWanted = st.grammarCheck;
     _sign = st.pgpSignDefault && s.pgp.hasKey(_accountId);
+    // Antwort auf eine verschlüsselte Mail: wieder verschlüsseln (Zitat enthält den Klartext)
+    if ((o?.pgp.confidential ?? false) && widget.mode != ComposeMode.newMail && s.pgp.hasKey(_accountId)) {
+      _encryptChoice = true;
+    }
     _bodySpell = MailSpellChecker(
       lang: st.spellLang,
       grammar: st.grammarCheck,
@@ -104,7 +108,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     MailSpellChecker.loadUserWords().then((_) => _spellChanged(), onError: (_) {});
 
     if (o != null) {
-      final subj = o.item.subject;
+      final subj = o.subject;
       switch (widget.mode) {
         case ComposeMode.reply:
         case ComposeMode.replyAll:

@@ -477,7 +477,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<MailDetail> loadDetail(MailItem item, {bool markSeen = true}) async {
-    final d = await mail.conn(item.accountId).fetchDetail(item, markSeen: markSeen);
+    final d = openPgp(await mail.conn(item.accountId).fetchDetail(item, markSeen: markSeen));
     if (markSeen && !item.seen) {
       item.seen = true;
       _adjustUnread(item, -1);
@@ -485,6 +485,42 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
     return d;
+  }
+
+  // ---------------------------------------------------------------- OpenPGP empfangen
+
+  /// Bekannte öffentliche Schlüssel des Absenders (Adressbuch bzw. eigenes Konto).
+  List<String> senderKeys(MailDetail d) => recipientKeys([
+        for (final a in d.fromAddrs) a.email,
+        if (d.fromAddrs.isEmpty) d.item.fromEmail,
+      ]).values.whereType<String>().toList();
+
+  /// Signierte Mails sofort prüfen; verschlüsselte entschlüsseln, wenn der Schlüssel schon entsperrt ist.
+  MailDetail openPgp(MailDetail d) {
+    switch (d.pgp.kind) {
+      case PgpKind.none:
+        return d;
+      case PgpKind.signed:
+        try {
+          final o = PgpService.verifyMail(d.mime, d.text, senderKeys(d));
+          return d.withPgp(o, d.pgp.copyWith(sig: o.sig, signer: o.signer));
+        } catch (_) {
+          return d.withStatus(d.pgp.copyWith(sig: PgpSig.invalid));
+        }
+      case PgpKind.encrypted:
+        if (d.pgp.decrypted || !pgp.isUnlocked(d.item.accountId)) return d;
+        try {
+          return decryptDetail(d);
+        } on PgpException catch (e) {
+          return d.withStatus(d.pgp.copyWith(error: e.message));
+        }
+    }
+  }
+
+  /// Entschlüsselt eine Mail (Schlüssel muss entsperrt sein). Wirft [PgpException].
+  MailDetail decryptDetail(MailDetail d) {
+    final o = pgp.decryptMail(d.item.accountId, d.mime, d.text, senderKeys(d));
+    return d.withPgp(o, d.pgp.copyWith(decrypted: true, sig: o.sig, signer: o.signer));
   }
 
   // ---------------------------------------------------------------- Ungelesen-Zähler

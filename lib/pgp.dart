@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dart_pg/dart_pg.dart' as pg;
+import 'package:enough_mail/enough_mail.dart' as em;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'storage.dart';
@@ -43,6 +44,43 @@ PgpKeyInfo _info(pg.BaseKey k, {bool secret = false}) => PgpKeyInfo(
       k.expirationTime,
       hasSecret: secret,
     );
+
+/// Art einer empfangenen OpenPGP-Mail.
+enum PgpKind { none, encrypted, signed }
+
+/// Ergebnis der Signaturprüfung.
+enum PgpSig { none, valid, invalid, unknownKey }
+
+/// OpenPGP-Zustand einer geöffneten Mail (für die Statusleiste).
+class PgpStatus {
+  final PgpKind kind;
+  final bool decrypted;
+  final PgpSig sig;
+  final String? signer; // Benutzerkennung des Signaturschlüssels
+  final String? error;
+  const PgpStatus(this.kind, {this.decrypted = false, this.sig = PgpSig.none, this.signer, this.error});
+  static const plain = PgpStatus(PgpKind.none);
+
+  bool get isEncrypted => kind == PgpKind.encrypted;
+
+  /// Inhalt darf nicht an KI/Benachrichtigungen gehen (verschlüsselt empfangen).
+  bool get confidential => kind == PgpKind.encrypted;
+
+  PgpStatus copyWith({bool? decrypted, PgpSig? sig, String? signer, String? error}) =>
+      PgpStatus(kind, decrypted: decrypted ?? this.decrypted, sig: sig ?? this.sig, signer: signer ?? this.signer, error: error);
+}
+
+/// Entschlüsselter bzw. geprüfter Inhalt.
+class PgpOpened {
+  /// Innere MIME-Nachricht (PGP/MIME), sonst null.
+  final em.MimeMessage? mime;
+
+  /// Reiner Text (Inline-PGP), sonst null.
+  final String? text;
+  final PgpSig sig;
+  final String? signer;
+  const PgpOpened({this.mime, this.text, this.sig = PgpSig.none, this.signer});
+}
 
 class PgpException implements Exception {
   final String message;
@@ -204,6 +242,160 @@ class PgpService {
     return t.contains('PRIVATE KEY BLOCK')
         ? pg.OpenPGP.readPrivateKey(t).publicKey.armor()
         : pg.OpenPGP.readPublicKey(t).armor();
+  }
+
+  // ---------------------------------------------------------------- Empfangen
+
+  static const _msgStart = '-----BEGIN PGP MESSAGE-----';
+  static const _msgEnd = '-----END PGP MESSAGE-----';
+  static const _signedStart = '-----BEGIN PGP SIGNED MESSAGE-----';
+  static const _sigEnd = '-----END PGP SIGNATURE-----';
+
+  /// Erkennt PGP/MIME (RFC 3156) und Inline-PGP. [text]: dekodierter Textteil der Mail.
+  static PgpKind detect(em.MimeMessage m, String text) {
+    final ct = m.getHeaderContentType();
+    final type = ct?.mediaType.text.toLowerCase();
+    final proto = (ct?.parameters['protocol'] ?? '').toLowerCase().replaceAll('"', '');
+    if (type == 'multipart/encrypted' && proto == 'application/pgp-encrypted') return PgpKind.encrypted;
+    if (type == 'multipart/signed' && proto == 'application/pgp-signature') return PgpKind.signed;
+    if (text.contains(_msgStart) && text.contains(_msgEnd)) return PgpKind.encrypted;
+    if (text.contains(_signedStart) && text.contains(_sigEnd)) return PgpKind.signed;
+    return PgpKind.none;
+  }
+
+  static String? _block(String s, String start, String end) {
+    final a = s.indexOf(start);
+    if (a < 0) return null;
+    final b = s.indexOf(end, a);
+    if (b < 0) return null;
+    return s.substring(a, b + end.length);
+  }
+
+  /// Öffentliche Schlüssel lesen; Unlesbares wird übersprungen.
+  static List<pg.BaseKey> _keys(Iterable<String> armored) {
+    final out = <pg.BaseKey>[];
+    for (final a in armored) {
+      try {
+        out.add(pg.OpenPGP.readPublicKey(a.trim()) as pg.BaseKey);
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// Signaturprüfung zusammenfassen. [verify] liefert je passender Signatur (gültig?, Benutzerkennung).
+  static (PgpSig, String?) _verdict(
+      bool hasSignature, List<pg.BaseKey> keys, Iterable<(bool, String?)> Function(List<pg.BaseKey>) verify) {
+    if (!hasSignature) return (PgpSig.none, null);
+    if (keys.isEmpty) return (PgpSig.unknownKey, null);
+    final List<(bool, String?)> v;
+    try {
+      v = verify(keys).toList();
+    } catch (_) {
+      return (PgpSig.invalid, null);
+    }
+    if (v.isEmpty) return (PgpSig.unknownKey, null);
+    final ok = v.where((x) => x.$1).firstOrNull;
+    if (ok != null) return (PgpSig.valid, ok.$2);
+    return (PgpSig.invalid, v.first.$2);
+  }
+
+  /// Entschlüsselt eine empfangene Mail mit dem (entsperrten) Schlüssel des Kontos.
+  /// [m]: vollständige Mail, [text]: dekodierter Textteil (für Inline-PGP),
+  /// [senderKeys]: bekannte öffentliche Schlüssel des Absenders (für die Signatur).
+  PgpOpened decryptMail(String accountId, em.MimeMessage m, String text, Iterable<String> senderKeys) {
+    final key = _unlocked[accountId];
+    if (key == null) {
+      throw PgpException(hasKey(accountId)
+          ? 'Schlüssel ist gesperrt – bitte Passwort eingeben.'
+          : 'Für dieses Konto ist kein eigener OpenPGP-Schlüssel eingerichtet.');
+    }
+    final ct = m.getHeaderContentType();
+    final isMime = ct?.mediaType.text.toLowerCase() == 'multipart/encrypted';
+    String? armored;
+    if (isMime) {
+      for (final p in m.parts ?? const <em.MimePart>[]) {
+        try {
+          final t = p.decodeContentText() ?? '';
+          armored = _block(t, _msgStart, _msgEnd);
+          if (armored != null) break;
+        } catch (_) {}
+      }
+      armored ??= _block(m.renderMessage(), _msgStart, _msgEnd);
+    } else {
+      armored = _block(text, _msgStart, _msgEnd);
+    }
+    if (armored == null) throw const PgpException('Kein verschlüsselter OpenPGP-Inhalt gefunden.');
+    final pg.LiteralMessage lit;
+    try {
+      lit = pg.OpenPGP.decrypt(normalizeArmor(armored), decryptionKeys: [key]) as pg.LiteralMessage;
+    } catch (_) {
+      throw const PgpException('Entschlüsseln fehlgeschlagen – die Mail ist nicht für deinen Schlüssel '
+          'verschlüsselt oder beschädigt.');
+    }
+    final keys = _keys(senderKeys);
+    final (sig, signer) = _verdict(lit.signature.packets.isNotEmpty, keys, (k) => lit.verify(k).map((v) => (v.isVerified, v.userIDs.firstOrNull)));
+    final plain = utf8.decode(lit.literalData.binary, allowMalformed: true);
+    if (isMime) {
+      return PgpOpened(mime: em.MimeMessage.parseFromText(plain.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n')),
+          sig: sig, signer: signer);
+    }
+    // Inline: verschlüsselten Block im Text ersetzen
+    return PgpOpened(text: text.replaceFirst(armored, plain.replaceAll('\r\n', '\n').trim()), sig: sig, signer: signer);
+  }
+
+  /// Prüft eine signierte Mail: multipart/signed (Signatur über die Bytes des ersten Teils)
+  /// oder Inline-Klartextsignatur. Braucht keinen eigenen Schlüssel.
+  static PgpOpened verifyMail(em.MimeMessage m, String text, Iterable<String> senderKeys) {
+    final keys = _keys(senderKeys);
+    final ct = m.getHeaderContentType();
+    if (ct?.mediaType.text.toLowerCase() == 'multipart/signed') {
+      final boundary = ct?.boundary;
+      var raw = m.renderMessage();
+      if (!raw.contains('\r\n')) raw = raw.replaceAll('\n', '\r\n');
+      final bodyAt = raw.indexOf('\r\n\r\n');
+      if (boundary == null || bodyAt < 0) return const PgpOpened(sig: PgpSig.invalid);
+      final open = '--$boundary\r\n';
+      final s0 = raw.indexOf(open, bodyAt);
+      if (s0 < 0) return const PgpOpened(sig: PgpSig.invalid);
+      final start = s0 + open.length;
+      final end = raw.indexOf('\r\n--$boundary', start);
+      if (end < 0) return const PgpOpened(sig: PgpSig.invalid);
+      final entity = raw.substring(start, end);
+      final sigArmor = _block(raw.substring(end), '-----BEGIN PGP SIGNATURE-----', _sigEnd);
+      if (sigArmor == null) return const PgpOpened(sig: PgpSig.invalid);
+      final pg.Signature signature;
+      try {
+        signature = pg.OpenPGP.readSignature(normalizeArmor(sigArmor)) as pg.Signature;
+      } catch (_) {
+        return const PgpOpened(sig: PgpSig.invalid);
+      }
+      // Bytes wie übertragen: Text aus IMAP kann als UTF-16 oder als Latin-1-Zeichen vorliegen
+      final candidates = <Uint8List>[Uint8List.fromList(utf8.encode(entity))];
+      if (entity.codeUnits.every((c) => c < 256) && entity.codeUnits.any((c) => c > 127)) {
+        candidates.add(Uint8List.fromList(latin1.encode(entity)));
+      }
+      (PgpSig, String?) result = (PgpSig.invalid, null);
+      for (final bytes in candidates) {
+        result = _verdict(true, keys,
+            (k) => pg.OpenPGP.createLiteralMessage(bytes)
+                .verifyDetached(k, signature)
+                .map((v) => (v.isVerified, v.userIDs.firstOrNull)));
+        if (result.$1 != PgpSig.invalid) break;
+      }
+      return PgpOpened(sig: result.$1, signer: result.$2);
+    }
+    // Inline-Klartextsignatur
+    final block = _block(text, _signedStart, _sigEnd);
+    if (block == null) return const PgpOpened(sig: PgpSig.none);
+    try {
+      final armored = normalizeArmor(block);
+      final msg = pg.OpenPGP.readSignedMessage(armored) as pg.SignedMessage;
+      final (sig, signer) =
+          _verdict(true, keys, (k) => msg.verify(k).map((v) => (v.isVerified, v.userIDs.firstOrNull)));
+      return PgpOpened(text: text.replaceFirst(block, msg.text.replaceAll('\r\n', '\n').trim()), sig: sig, signer: signer);
+    } catch (_) {
+      return const PgpOpened(sig: PgpSig.invalid);
+    }
   }
 
   // ---------------------------------------------------------------- PGP/MIME (RFC 3156)

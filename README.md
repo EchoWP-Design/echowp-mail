@@ -2,7 +2,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 5.1** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 5.2** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -47,7 +47,8 @@ Updates werden einfach über die vorhandene App installiert (gleiche Signatur, s
 - Öffentliche Schlüssel der Kontakte im Adressbuch; angehängte `.asc`-Schlüssel mit einem Knopf übernehmen
 - Senden verschlüsselt und/oder signiert als PGP/MIME (RFC 3156) – kompatibel mit Thunderbird/Betterbird, GnuPG und Mailvelope; automatisch verschlüsseln, wenn für alle Empfänger Schlüssel vorliegen
 - Geheimer Schlüssel nur im sicheren Speicher des Geräts (nicht im Drive-Abgleich), Passwort höchstens bis zum Beenden der App gemerkt; bei verschlüsselten Mails sind KI und Online-Grammatikprüfung aus
-- Noch nicht enthalten: verschlüsselte Mails in der App lesen (folgt)
+- Empfangen: verschlüsselte Mails (PGP/MIME und Inline-PGP) nach Passwortabfrage entschlüsseln – Text, HTML, Anhänge und geschützter Betreff; Signaturen prüfen (PGP/MIME und Klartextsignatur) mit Statusleiste: verschlüsselt / Signatur gültig / ungültig / Schlüssel unbekannt
+- Entschlüsselte Inhalte gehen nie an die KI; Antworten auf verschlüsselte Mails werden wieder verschlüsselt
 
 ### Rechtschreibung und Grammatik
 - Prüfung beim Schreiben (Betreff und Text): Rechtschreibung offline über das Wörterbuch von Android bzw. Windows, Grammatik und Stil zusätzlich online über [LanguageTool](https://languagetool.org) (abschaltbar)
@@ -80,7 +81,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **5.1** | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |
+| **5.2** | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |
+| 5.1 | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |
 | 5.0 | Neues Schreiben-Fenster: unter Windows wie Betterbird (Menü-, Symbol- und Formatleiste, Kontakte-Leiste, CC/BCC), am Handy vereinfacht; formatierte HTML-Mails mit Bildern; Entwürfe speichern |
 | 4.1 | Rechtschreib- und Grammatikprüfung mit Korrekturvorschlägen im Kontextmenü, 17 Sprachen, eigenes Wörterbuch |
 | 4.0 | „Alle Posteingänge“ heißt „Aktuell“, Mails in der Farbe ihres Postfachs; Abruf mit Zeitgrenze (Anzeige max. 5 s, hängende Verbindungen werden nach 60 s neu aufgebaut); Esc schließt nur Adressvorschläge |

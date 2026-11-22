@@ -1703,6 +1703,193 @@ void main() {
       expect(PgpService.publicOnly(b.ownSecretArmored('b1')!), isNot(contains('PRIVATE')));
     });
 
+    // ------------------------------------------------------------ Stufe 3: Empfangen
+
+    MailItem fromBob(String subject) => MailItem(
+          accountId: 'a1',
+          folderPath: 'INBOX',
+          uid: 77,
+          subject: subject,
+          fromName: 'Bob',
+          fromEmail: 'bob@example.de',
+          date: DateTime(2026, 11, 22, 9),
+          seen: false,
+          flagged: false,
+          hasAttachments: false,
+        );
+
+    /// Bob schreibt an das Testkonto (a1 / test@example.de).
+    Future<(AppState, PgpService)> receiver() async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      await s.pgp.generate('a1', 'Test Konto', 'test@example.de', passA);
+      final bob = PgpService();
+      await bob.generate('b1', 'Bob', 'bob@example.de', passB);
+      bob.unlock('b1', passB);
+      return (s, bob);
+    }
+
+    String bobWrites(PgpService bob, AppState s, {required bool encrypt, required bool sign, String subject = 'Geheim'}) {
+      final plain = MailService.buildMessage(
+        from: EchoAccount(id: 'b1', name: 'Bob', email: 'bob@example.de', imapHost: 'x', smtpHost: 'x', color: 0),
+        to: parseAddresses('test@example.de'),
+        subject: subject,
+        text: 'Hallo Test, äöü ß – Zeile 2',
+        html: encrypt ? '<p>Hallo <b>Test</b></p>' : null,
+        attachments: encrypt ? [('plan.txt', Uint8List.fromList(utf8.encode('Plan B')))] : const [],
+        sevenBit: true,
+      );
+      return bob.protect(
+        renderedMessage: plain.renderMessage(),
+        accountId: 'b1',
+        encrypt: encrypt,
+        sign: sign,
+        recipientKeys: [if (encrypt) s.pgp.ownPublicArmored('a1')!],
+      );
+    }
+
+    test('Empfangen PGP/MIME: erkennen, gesperrt nichts zeigen, entschlüsseln, Anhang, Signatur', () async {
+      final (s, bob) = await receiver();
+      final raw = bobWrites(bob, s, encrypt: true, sign: true);
+      final d = MailDetail.fromMime(fromBob('Geheim'), em.MimeMessage.parseFromText(raw));
+      expect(d.pgp.kind, PgpKind.encrypted);
+      expect(d.attachments, isEmpty, reason: 'encrypted.asc nicht als Anhang zeigen');
+      expect(() => d.promptText(), throwsA(isA<PgpException>()), reason: 'nie an die KI');
+      // Schlüssel gesperrt → bleibt verschlüsselt, kein Fehler
+      final locked = s.openPgp(d);
+      expect(locked.pgp.decrypted, isFalse);
+      expect(() => s.decryptDetail(d), throwsA(isA<PgpException>()));
+      // entsperren → entschlüsselt
+      s.pgp.unlock('a1', passA);
+      final open = s.openPgp(d);
+      expect(open.pgp.decrypted, isTrue);
+      expect(open.text, contains('Hallo Test, äöü ß'));
+      expect(open.html, contains('<b>Test</b>'));
+      expect(open.attachments.map((a) => a.name), ['plan.txt']);
+      expect(utf8.decode(open.attachmentBytes(open.attachments.single)!), 'Plan B');
+      expect(open.subject, 'Geheim');
+      expect(open.pgp.sig, PgpSig.unknownKey, reason: 'Bob noch nicht im Adressbuch');
+      expect(() => open.promptText(), throwsA(isA<PgpException>()));
+      // Bobs Schlüssel bekannt → Signatur gültig
+      await s.importPublicKey(bob.ownPublicArmored('b1')!);
+      final ok = s.openPgp(d);
+      expect(ok.pgp.sig, PgpSig.valid);
+      expect(ok.pgp.signer, contains('bob@example.de'));
+      // falscher Schlüssel (Mail nicht für uns) → klare Meldung
+      final other = await s.pgp.generate('a1', 'Neu', 'test@example.de', passA);
+      expect(other.fingerprint, isNotEmpty);
+      s.pgp.unlock('a1', passA);
+      final fail = s.openPgp(d);
+      expect(fail.pgp.decrypted, isFalse);
+      expect(fail.pgp.error, contains('Entschlüsseln fehlgeschlagen'));
+    });
+
+    test('Geschützter Betreff: außen „...“, innen der echte Betreff', () async {
+      final (s, bob) = await receiver();
+      final raw = bobWrites(bob, s, encrypt: true, sign: false, subject: 'Echter Betreff');
+      s.pgp.unlock('a1', passA);
+      final d = s.openPgp(MailDetail.fromMime(fromBob('...'), em.MimeMessage.parseFromText(raw)));
+      expect(d.subject, 'Echter Betreff');
+      expect(d.pgp.sig, PgpSig.none, reason: 'nicht signiert');
+    });
+
+    test('Empfangen multipart/signed: gültig, unbekannt, verändert', () async {
+      final (s, bob) = await receiver();
+      final raw = bobWrites(bob, s, encrypt: false, sign: true, subject: 'Signiert');
+      final d = MailDetail.fromMime(fromBob('Signiert'), em.MimeMessage.parseFromText(raw));
+      expect(d.pgp.kind, PgpKind.signed);
+      expect(d.attachments, isEmpty, reason: 'OpenPGP_signature.asc ausblenden');
+      expect(s.openPgp(d).pgp.sig, PgpSig.unknownKey);
+      expect(s.openPgp(d).text, contains('Hallo Test'));
+      await s.importPublicKey(bob.ownPublicArmored('b1')!);
+      final ok = s.openPgp(d);
+      expect(ok.pgp.sig, PgpSig.valid);
+      expect(ok.promptText(), contains('Hallo Test'), reason: 'nur signiert → KI erlaubt');
+      // Inhalt unterwegs verändert → ungültig
+      final tampered = raw.replaceFirst('Zeile 2', 'Zeile 3');
+      expect(tampered, isNot(raw));
+      final bad = s.openPgp(MailDetail.fromMime(fromBob('Signiert'), em.MimeMessage.parseFromText(tampered)));
+      expect(bad.pgp.sig, PgpSig.invalid);
+    });
+
+    test('Inline-PGP: verschlüsselter Block und Klartextsignatur im Text', () async {
+      final (s, bob) = await receiver();
+      await s.importPublicKey(bob.ownPublicArmored('b1')!);
+      final bobKey = pg.OpenPGP.decryptPrivateKey(bob.ownSecretArmored('b1')!, passB);
+      final enc = pg.OpenPGP.encrypt(
+        pg.OpenPGP.createLiteralMessage(Uint8List.fromList(utf8.encode('Inline geheim äöü'))),
+        encryptionKeys: [pg.OpenPGP.readPublicKey(s.pgp.ownPublicArmored('a1')!)],
+        signingKeys: [bobKey],
+      ).armor();
+      final m1 = MailService.buildMessage(
+        from: _acc(),
+        to: parseAddresses('test@example.de'),
+        subject: 'Inline',
+        text: 'Vorher\n$enc\nNachher',
+        sevenBit: true,
+      );
+      final d1 = MailDetail.fromMime(fromBob('Inline'), em.MimeMessage.parseFromText(m1.renderMessage()));
+      expect(d1.pgp.kind, PgpKind.encrypted);
+      s.pgp.unlock('a1', passA);
+      final o1 = s.openPgp(d1);
+      expect(o1.pgp.decrypted, isTrue);
+      expect(o1.text, contains('Inline geheim äöü'));
+      expect(o1.text, contains('Vorher'));
+      expect(o1.text, isNot(contains('BEGIN PGP MESSAGE')));
+      expect(o1.pgp.sig, PgpSig.valid);
+
+      final clear = pg.OpenPGP.signCleartext('Nur signiert, Zeile 1\nZeile 2', [bobKey]).armor();
+      final m2 = MailService.buildMessage(
+        from: _acc(),
+        to: parseAddresses('test@example.de'),
+        subject: 'Klartext',
+        text: clear,
+        sevenBit: true,
+      );
+      final d2 = s.openPgp(MailDetail.fromMime(fromBob('Klartext'), em.MimeMessage.parseFromText(m2.renderMessage())));
+      expect(d2.pgp.kind, PgpKind.signed);
+      expect(d2.pgp.sig, PgpSig.valid);
+      expect(d2.text, contains('Nur signiert, Zeile 1'));
+      expect(d2.text, isNot(contains('BEGIN PGP')));
+      expect(PgpService.detect(em.MimeMessage.parseFromText(m2.renderMessage().replaceAll('PGP', 'XYZ')), 'normal'),
+          PgpKind.none);
+    });
+
+    testWidgets('Mail lesen (Handy): Entschlüsseln-Knopf, Passwort, Inhalt, keine KI', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      late AppState s;
+      late String raw;
+      await tester.runAsync(() async {
+        final (st, bob) = await receiver();
+        s = st;
+        raw = bobWrites(bob, s, encrypt: true, sign: true);
+        await s.importPublicKey(bob.ownPublicArmored('b1')!);
+      });
+      s.pgp.lockAll();
+      final item = fromBob('Geheim');
+      s.mail.put('a1', _DetailConn(_acc(), raw));
+      await tester.pumpWidget(_wrap(s, MessageScreen(item: item)));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pgp-state-encrypted')), findsOneWidget);
+      expect(find.textContaining('Hallo Test'), findsNothing);
+      expect(find.text('KI-Assistent'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('pgp-decrypt')));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.enterText(find.byKey(const ValueKey('pgp-pass')), passA);
+      await tester.tap(find.byKey(const ValueKey('pgp-pass-ok')));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('pgp-state-decrypted')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pgp-sig-valid')), findsOneWidget);
+      expect(find.textContaining('plan.txt'), findsOneWidget);
+      expect(find.text('KI-Assistent'), findsNothing);
+      await _drain(tester);
+    });
+
     testWidgets('Schreiben (Windows): Verschlüsselung automatisch, Hinweis, ohne Schlüssel Rückfrage', (tester) async {
       tester.view.physicalSize = const Size(1400, 900);
       tester.view.devicePixelRatio = 1;
@@ -1760,6 +1947,16 @@ class _SlowConn extends AccountConnection {
 
   @override
   Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
+}
+
+/// Nachgebildeter Server, der eine feste Rohmail liefert.
+class _DetailConn extends AccountConnection {
+  final String raw;
+  _DetailConn(super.account, this.raw);
+
+  @override
+  Future<MailDetail> fetchDetail(MailItem item, {bool markSeen = true}) async =>
+      MailDetail.fromMime(item, em.MimeMessage.parseFromText(raw));
 }
 
 /// Nachgebildetes Offline-Wörterbuch: meldet die angegebenen Wörter als falsch.
