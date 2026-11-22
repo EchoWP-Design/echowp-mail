@@ -2,7 +2,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 5.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 5.1** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -42,6 +42,13 @@ Updates werden einfach über die vorhandene App installiert (gleiche Signatur, s
 - Versand als HTML mit Text-Alternative; eingefügte Bilder werden eingebettet (Content-ID). Unformatierte Mails gehen weiter als reiner Text
 - Entwurf speichern (Strg+S) in den Ordner „Entwürfe“ des Kontos
 
+### Verschlüsselung (OpenPGP)
+- Eigenes Schlüsselpaar je Konto erzeugen (Ed25519/Curve25519, wie GnuPG-Standard) oder importieren; öffentlichen Schlüssel per Mail senden, kopieren oder speichern; geheimen Schlüssel sichern
+- Öffentliche Schlüssel der Kontakte im Adressbuch; angehängte `.asc`-Schlüssel mit einem Knopf übernehmen
+- Senden verschlüsselt und/oder signiert als PGP/MIME (RFC 3156) – kompatibel mit Thunderbird/Betterbird, GnuPG und Mailvelope; automatisch verschlüsseln, wenn für alle Empfänger Schlüssel vorliegen
+- Geheimer Schlüssel nur im sicheren Speicher des Geräts (nicht im Drive-Abgleich), Passwort höchstens bis zum Beenden der App gemerkt; bei verschlüsselten Mails sind KI und Online-Grammatikprüfung aus
+- Noch nicht enthalten: verschlüsselte Mails in der App lesen (folgt)
+
 ### Rechtschreibung und Grammatik
 - Prüfung beim Schreiben (Betreff und Text): Rechtschreibung offline über das Wörterbuch von Android bzw. Windows, Grammatik und Stil zusätzlich online über [LanguageTool](https://languagetool.org) (abschaltbar)
 - Rechtschreibfehler rot, Grammatikhinweise im Mailtext blau unterstrichen; Rechtsklick bzw. langes Drücken zeigt Vorschläge, „Ignorieren“ und „Zum Wörterbuch hinzufügen“
@@ -73,7 +80,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **5.0** | Neues Schreiben-Fenster: unter Windows wie Betterbird (Menü-, Symbol- und Formatleiste, Kontakte-Leiste, CC/BCC), am Handy vereinfacht; formatierte HTML-Mails mit Bildern; Entwürfe speichern |
+| **5.1** | OpenPGP: Schlüssel verwalten, Kontaktschlüssel, verschlüsselt und signiert senden (PGP/MIME) |
+| 5.0 | Neues Schreiben-Fenster: unter Windows wie Betterbird (Menü-, Symbol- und Formatleiste, Kontakte-Leiste, CC/BCC), am Handy vereinfacht; formatierte HTML-Mails mit Bildern; Entwürfe speichern |
 | 4.1 | Rechtschreib- und Grammatikprüfung mit Korrekturvorschlägen im Kontextmenü, 17 Sprachen, eigenes Wörterbuch |
 | 4.0 | „Alle Posteingänge“ heißt „Aktuell“, Mails in der Farbe ihres Postfachs; Abruf mit Zeitgrenze (Anzeige max. 5 s, hängende Verbindungen werden nach 60 s neu aufgebaut); Esc schließt nur Adressvorschläge |
 | 3.5 | Adressbuch, Adress-Gedächtnis mit Vorschlägen, Absender per Knopf ins Adressbuch |
@@ -97,7 +105,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 ## Technik
 
-Flutter (Dart), `enough_mail` für IMAP/SMTP. Die Plattformordner (`android/`, `windows/`) entstehen beim Build per `flutter create` und werden von `tool/patch_platforms.py` angepasst (Manifest, Signatur, Push-Dienst; im Windows-Fenster Drag & Drop und die Rechtschreibprüfung aus `tool/windows/`). Versionsnummer in `pubspec.yaml`; Android-versionCode = ABI × 1000 + Build-Nummer.
+Flutter (Dart), `enough_mail` für IMAP/SMTP, `dart_pg` für OpenPGP. Die Plattformordner (`android/`, `windows/`) entstehen beim Build per `flutter create` und werden von `tool/patch_platforms.py` angepasst (Manifest, Signatur, Push-Dienst; im Windows-Fenster Drag & Drop und die Rechtschreibprüfung aus `tool/windows/`). Versionsnummer in `pubspec.yaml`; Android-versionCode = ABI × 1000 + Build-Nummer.
 
 ## Lizenz
 
