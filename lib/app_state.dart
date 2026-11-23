@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' show NotificationResponse;
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'ai_service.dart';
 import 'background.dart';
@@ -131,6 +132,23 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    // Android: APK über den Browser laden – der Browser darf installieren, die App bewusst nicht
+    // (Berechtigung „Andere Apps installieren“ → Play Protect blockiert die App)
+    if (Platform.isAndroid) {
+      final url = r.assets[name]?.url;
+      if (url == null) {
+        updateError = 'Im Release fehlt die Datei $name.';
+        notifyListeners();
+        return;
+      }
+      updateError = null;
+      notifyListeners();
+      final ok = await whileAway(() => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication));
+      toast(ok
+          ? 'Download läuft im Browser – danach die Datei antippen und „Aktualisieren“ wählen.'
+          : 'Browser ließ sich nicht öffnen – bitte die Download-Seite verwenden.');
+      return;
+    }
     // Portable Windows-Version: nicht installiert → Download-Seite öffnen
     if (Platform.isWindows && !Updater.windowsInstalled) {
       updateError = 'Portable Version: bitte die neue ZIP von der Download-Seite entpacken.';
@@ -152,9 +170,6 @@ class AppState extends ChangeNotifier {
       });
       updateProgress = null;
       notifyListeners();
-      if (Platform.isAndroid) {
-        toast('Installation bestätigen – beim ersten Mal „Unbekannte Apps installieren“ erlauben.');
-      }
       await whileAway(() => updater.install(f));
     } catch (e) {
       updateProgress = null;

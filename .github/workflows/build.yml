@@ -65,6 +65,10 @@ jobs:
             "$AAPT/aapt2" dump badging "$f" | grep -E "^package:|native-code"
             "$AAPT/apksigner" verify --print-certs "$f" | grep -m1 "SHA-256"
           done
+          # Play Protect blockiert Sideload-Apps mit „Andere Apps installieren“ (v6.2) → nie wieder
+          if "$AAPT/aapt2" dump permissions dist/EchoWP-Mail.apk | grep -q REQUEST_INSTALL_PACKAGES; then
+            echo "::error::APK enthält REQUEST_INSTALL_PACKAGES – Play Protect stuft sie als schädlich ein"; exit 1
+          fi
           VC=$("$AAPT/aapt2" dump badging dist/EchoWP-Mail.apk | sed -nE "s/.*versionCode='([0-9]+)'.*/\1/p")
           echo "versionCode arm64: $VC"
           # Muss über den bisherigen Versionen (bis 3) liegen, damit Updates drüberinstallierbar bleiben

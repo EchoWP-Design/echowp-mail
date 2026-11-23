@@ -88,7 +88,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **6.2** | Updates direkt aus der App: Einstellungen → Updates („Suchen“ / „Jetzt updaten“), Prüfung beim Start und täglich, Hinweisbanner; Download mit SHA-256-Kontrolle; Android über den System-Installer, Windows über den Installer mit Neustart |
+| **6.2.1** | Android-Update ohne Berechtigung „Andere Apps installieren“ (Play Protect blockierte 6.2): „Jetzt updaten“ lädt die APK im Browser |
+| 6.2 | Updates direkt aus der App: Einstellungen → Updates („Suchen“ / „Jetzt updaten“), Prüfung beim Start und täglich, Hinweisbanner; Download mit SHA-256-Kontrolle; Android über den System-Installer, Windows über den Installer mit Neustart |
 | 6.1 | KI-Werkzeug „Sicherheit prüfen“: Phishing-/Betrugs-/Schadsoftware-Prüfung (Regeln + KI) mit Risikowert, Begründung und Knopf „In Spam verschieben“ |
 | 6.0 | OpenPGP komplett: in der Mailliste und in „Aktuell“ Schloss (verschlüsselt) bzw. Siegel (signiert); nach dem Entschlüsseln echter Betreff statt „...“ (nur bis App-Ende im Arbeitsspeicher); Signaturteile nicht mehr als Anhang gezählt |
 | 5.2.2 | OpenPGP: Signaturen aus Thunderbird/Betterbird werden als gültig erkannt (Ablaufzeit 0 = nie), Textmodus-Signaturen, Schlüssel aus Betterbird/Windows-Dateien (CRLF) übernehmbar; automatische Gegentests mit RNP und GnuPG |
@@ -115,7 +116,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 - Externe Bilder (Tracking-Pixel) standardmäßig blockiert, Links nur nach Bestätigung mit Anzeige der Zieladresse, nur http/https/mailto
 - Anhangsnamen werden bereinigt, Eingaben gegen Header- und IMAP-Befehlsinjektion gefiltert
 - Benachrichtigungen zeigen auf dem Sperrbildschirm keinen Inhalt
-- Updates nur aus den GitHub-Releases dieses Repos, Prüfsumme (SHA-256) vor der Installation kontrolliert; Android prüft zusätzlich die Signatur
+- Updates nur aus den GitHub-Releases dieses Repos, unter Windows Prüfsumme (SHA-256) vor der Installation kontrolliert; Android prüft die Signatur. Die App fordert bewusst keine Berechtigung zum Installieren anderer Apps an
 - Build: Actions auf Commit-SHA fixiert, Minimalrechte; Signierschlüssel nur in GitHub-Secrets, nie im Repo
 
 ## Technik

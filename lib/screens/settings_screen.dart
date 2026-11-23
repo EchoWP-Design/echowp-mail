@@ -381,7 +381,11 @@ class _UpdateTile extends StatelessWidget {
         title: Text(status),
         subtitle: s.updateError != null
             ? Text(s.updateError!, style: TextStyle(color: Theme.of(context).colorScheme.error))
-            : (u != null ? const Text('Prüfsumme wird vor der Installation kontrolliert') : null),
+            : (u != null
+                ? Text(Platform.isAndroid
+                    ? 'Lädt die APK im Browser – danach antippen und „Aktualisieren“ wählen'
+                    : 'Prüfsumme wird vor der Installation kontrolliert')
+                : null),
         trailing: (progress != null || s.updateChecking)
                 ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                 : u != null

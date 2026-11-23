@@ -2,14 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:android_intent_plus/android_intent.dart';
-import 'package:android_intent_plus/flag.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 /// Version dieser App – muss zu `version:` in pubspec.yaml passen (Test prüft das).
-const appVersion = '6.2.0';
+const appVersion = '6.2.1';
 
 /// Build-Nummer (GitHub-Lauf), wird beim Bauen per `--dart-define=ECHOWP_BUILD=…` gesetzt.
 const appBuild = int.fromEnvironment('ECHOWP_BUILD');
@@ -172,7 +170,7 @@ class Updater {
   // ------------------------------------------------------------ Herunterladen
 
   /// Lädt die passende Datei, prüft Größe und SHA-256. [progress] 0..1.
-  /// [into] = Zielordner (Standard: Cache der App; Android-FileProvider erwartet dort „updates/“).
+  /// [into] = Zielordner (Standard: Cache der App).
   Future<File> download(ReleaseInfo r, String assetName,
       {void Function(double)? progress, Directory? into}) async {
     final asset = r.assets[assetName];
@@ -228,20 +226,10 @@ class Updater {
     return File('$dir\\unins000.exe').existsSync();
   }
 
-  /// Android: öffnet den System-Installer (Nutzer bestätigt).
   /// Windows: startet den Installer still, beendet die App; der Installer startet sie neu.
+  /// (Android lädt über den Browser – eine eigene Installationsberechtigung
+  /// lässt Play Protect die App als schädlich blockieren.)
   Future<void> install(File f) async {
-    if (Platform.isAndroid) {
-      final name = f.uri.pathSegments.last;
-      await AndroidIntent(
-        action: 'android.intent.action.VIEW',
-        // FileProvider „de.echowp.echowp_mail.updates“ → Cache-Ordner updates/ (tool/patch_platforms.py)
-        data: 'content://de.echowp.echowp_mail.updates/updates/$name',
-        type: 'application/vnd.android.package-archive',
-        flags: const [Flag.FLAG_GRANT_READ_URI_PERMISSION, Flag.FLAG_ACTIVITY_NEW_TASK],
-      ).launch();
-      return;
-    }
     if (Platform.isWindows) {
       await Process.start(
         f.path,
