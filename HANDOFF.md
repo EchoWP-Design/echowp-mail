@@ -1,26 +1,26 @@
-# Übergabe – 2026-11-22, 23:55
+# Übergabe – 2026-11-23, 03:30
 
 ## Ziel der Sitzung
-OpenPGP fertigstellen: Lesen (v5.2), Betterbird-Kompatibilität (v5.2.1/5.2.2), Kennzeichnung in der Liste → v6.0.
+KI-Werkzeug „Sicherheit prüfen“ (Phishing/Betrug/Schadsoftware) + Knopf „In Spam verschieben“ → v6.1.
 
 ## Erledigt
-- v5.2 OpenPGP lesen – 8ff5ec1
-- v5.2.1/5.2.2 dart_pg gepatcht in `third_party/dart_pg` (8 Patches, PATCHES.md), CI-Gegentests mit rnp + gnupg – bis 7acf9b6
-- Jan hat am 22.11. bestätigt: Betterbird ↔ EchoWP-Mail funktioniert in beide Richtungen (verschlüsselt, Signatur gültig)
-- v6.0: Schloss/Siegel in Mailliste und „Aktuell“ (`MailItem.pgp` aus BODYSTRUCTURE), geschützter Betreff nach Entschlüsseln in der Liste (`MailItem.displaySubject`, nur Arbeitsspeicher, beim Sperren vergessen), Signaturteile kein Anhang – a837049
-- Release v6.0.0-build-49 (arm64 versionCode 2022), 88/88 Tests
+- `lib/security_check.dart`: Regelprüfung offline (SPF/DKIM/DMARC aus Authentication-Results/Received-SPF, Anzeigename mit fremder Adresse, Marken-Imitation im Namen und in Link-Domains, Linktext ≠ Ziel (Newsletter-Zähldienste nur +5), IP/Punycode/Kurzlinks/@ im Link, Formulare/Skripte, gefährliche Anhänge inkl. doppelter Endung, Formulierungen)
+- `AiService.securityCheck` (JSON score/gruende/fazit, Mailtext als nicht vertrauenswürdig markiert); `AppState.securityCheck`: Endwert = max(Regeln, KI); ohne Key/bei KI-Fehler nur Regeln
+- `AppState.moveToSpam/spamPath`: Spam-Ordner (Rolle junk), sonst „Spam“ anlegen; Verschieben mit Rückgängig
+- UI: Knopf „Sicherheit prüfen“ in der KI-Karte, Alt+4, Ergebnis-Panel (grün/gelb/rot), „In Spam verschieben“
+- `AppState.ai` jetzt austauschbar (Tests mit `_FakeAi`)
+- Release v6.1.0-build-51, 94/94 Tests – cbcb46e
 
 ## Offen / nächster Schritt
-1. Jans Rückmeldung zu v6.0 abwarten
-2. Ideen: Autocrypt/WKD, Schlüssel-Ablauf/Widerruf, Inline-PGP-Anhänge; Inline-PGP ist in der Liste nicht erkennbar (nur PGP/MIME)
+1. Jans Rückmeldung zu v6.1 (Fehlalarme bei echten Firmenmails? Markenliste/Domains ggf. ergänzen)
+2. Ideen: Prüfung automatisch beim Öffnen (nur Regeln, ohne KI), Absender „vertrauen“, Warnbanner in der Liste
 
 ## Entscheidungen
-- Entschlüsselter Betreff wird nie gespeichert und nie in Benachrichtigungen verwendet (`subject` bleibt „...“)
-- dart_pg vendort; Interop wird in CI mit echtem RNP/GnuPG geprüft
+- Regeln bilden die Untergrenze – die KI kann den Wert nur erhöhen (Schutz vor Prompt-Injektion)
+- Verschlüsselte Mails: keine Sicherheitsprüfung (KI-Karte ausgeblendet)
 
 ## Bekannte Probleme
-- Vor 5.2.1 erzeugte Schlüssel werben mit AEAD (nur Neuerzeugung hilft)
-- Windows-Teile nur in CI gebaut
+- Handy-Widget-Test: `ensureVisible` erreichte den Spam-Knopf nicht → `dragUntilVisible`
 
 ## Zustand
-- Branch `main`, letzter Code-Commit a837049; Run 45078782492 grün
+- Branch `main`, Code-Commit cbcb46e; Run 45098041114 grün
