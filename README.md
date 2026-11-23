@@ -68,6 +68,12 @@ Komplett ohne Maus bedienbar, angelehnt an Outlook. Übersicht mit **F1**. Beisp
 ### KI (Claude API, eigener Schlüssel)
 Zusammenfassung, drei Antwortvorschläge, Ordnervorschlag, Sortierung ganzer Ordner, Entwurf überarbeiten
 
+**Sicherheit prüfen** (Alt+4): Prüft die geöffnete Mail auf Phishing, Betrug und Schadsoftware in zwei Stufen:
+1. Feste Regeln, offline: SPF/DKIM/DMARC-Ergebnis des Servers, gefälschte Anzeigenamen und Marken (PayPal, Sparkasse, DHL, Microsoft …), Linktext ≠ Linkziel, IP-/Punycode-/Kurzlinks, Formulare und Skripte, gefährliche Anhänge (.exe, .iso, Makros, HTML, doppelte Endungen), typische Formulierungen (Zeitdruck, PIN/TAN, Krypto, neue IBAN)
+2. KI-Bewertung mit Begründung – erhält Kopfzeilen, Links, Anhänge und die Regelbefunde; Anweisungen im Mailtext werden ignoriert
+
+Ergebnis: Risiko 0–100 (unauffällig / verdächtig / gefährlich), der höhere Wert beider Stufen zählt – die KI kann die Regelbefunde nicht „wegdiskutieren“. Nach eigener Prüfung verschiebt **„In Spam verschieben“** die Mail in den Spam-Ordner des Kontos (wird bei Bedarf angelegt, mit Rückgängig). Ohne API-Key läuft nur die Regelprüfung.
+
 ### Abgleich zwischen Geräten
 Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt in Google Drive (Ordner „EchoWP-Mail“, Scope `drive.file`) und werden zwischen Handy und PC abgeglichen. Alternativ verschlüsselte Sicherungsdatei exportieren/importieren.
 
@@ -82,7 +88,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **6.0** | OpenPGP komplett: in der Mailliste und in „Aktuell“ Schloss (verschlüsselt) bzw. Siegel (signiert); nach dem Entschlüsseln echter Betreff statt „...“ (nur bis App-Ende im Arbeitsspeicher); Signaturteile nicht mehr als Anhang gezählt |
+| **6.1** | KI-Werkzeug „Sicherheit prüfen“: Phishing-/Betrugs-/Schadsoftware-Prüfung (Regeln + KI) mit Risikowert, Begründung und Knopf „In Spam verschieben“ |
+| 6.0 | OpenPGP komplett: in der Mailliste und in „Aktuell“ Schloss (verschlüsselt) bzw. Siegel (signiert); nach dem Entschlüsseln echter Betreff statt „...“ (nur bis App-Ende im Arbeitsspeicher); Signaturteile nicht mehr als Anhang gezählt |
 | 5.2.2 | OpenPGP: Signaturen aus Thunderbird/Betterbird werden als gültig erkannt (Ablaufzeit 0 = nie), Textmodus-Signaturen, Schlüssel aus Betterbird/Windows-Dateien (CRLF) übernehmbar; automatische Gegentests mit RNP und GnuPG |
 | 5.2.1 | OpenPGP kompatibel mit Thunderbird/Betterbird: neue Schlüssel ohne AEAD-Werbung (keine Import-Warnung mehr), Mails immer im klassischen Format (SEIPDv1); seltene Fehler bei Schlüsselerzeugung und Signaturprüfung (Ed25519) behoben |
 | 5.2 | OpenPGP lesen: verschlüsselte Mails entschlüsseln, Signaturen prüfen, Statusleiste; Antworten automatisch verschlüsselt |

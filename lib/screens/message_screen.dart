@@ -11,6 +11,7 @@ import '../app_state.dart';
 import '../mail_service.dart';
 import '../models.dart';
 import '../pgp.dart';
+import '../security_check.dart';
 import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
 import 'compose_screen.dart';
@@ -97,6 +98,7 @@ class _MessageViewState extends State<MessageView> {
   String? _summary;
   List<String>? _replies;
   String? _folderSuggestion;
+  SecurityReport? _security;
   String? _aiBusy;
 
   @override
@@ -149,6 +151,7 @@ class _MessageViewState extends State<MessageView> {
       if (k == LogicalKeyboardKey.digit1 || k == LogicalKeyboardKey.numpad1) return _aiKey('summary');
       if (k == LogicalKeyboardKey.digit2 || k == LogicalKeyboardKey.numpad2) return _aiKey('replies');
       if (k == LogicalKeyboardKey.digit3 || k == LogicalKeyboardKey.numpad3) return _aiKey('folder');
+      if (k == LogicalKeyboardKey.digit4 || k == LogicalKeyboardKey.numpad4) return _aiKey('security');
       if (k == LogicalKeyboardKey.keyB) {
         setState(() => _loadImages = true);
         return true;
@@ -209,6 +212,9 @@ class _MessageViewState extends State<MessageView> {
           final r = await s.aiSuggestFolder(widget.item, detail: d);
           if (r == null) s.toast('Die KI hat keinen eindeutig passenden Ordner gefunden.');
           if (mounted) setState(() => _folderSuggestion = r);
+        case 'security':
+          final r = await s.securityCheck(d);
+          if (mounted) setState(() => _security = r);
       }
     } catch (e) {
       s.toast(AppState.errText(e));
@@ -578,7 +584,12 @@ class _MessageViewState extends State<MessageView> {
             btn('summary', Icons.summarize, 'Zusammenfassen'),
             btn('replies', Icons.quickreply, 'Antwortvorschläge'),
             btn('folder', Icons.drive_file_move, 'Ordner vorschlagen'),
+            btn('security', Icons.gpp_maybe_outlined, 'Sicherheit prüfen'),
           ]),
+          if (_security != null) ...[
+            const SizedBox(height: 12),
+            _securityPanel(s, d, _security!),
+          ],
           if (_summary != null) ...[
             const SizedBox(height: 12),
             Text('Zusammenfassung', style: theme.textTheme.labelLarge),
@@ -620,6 +631,118 @@ class _MessageViewState extends State<MessageView> {
           ],
         ]),
       ),
+    );
+  }
+
+  Future<void> _toSpam(AppState s, MailItem item) async {
+    try {
+      final moved = await s.moveToSpam(item);
+      if (!moved) {
+        s.toast('Die Mail liegt bereits im Spam-Ordner.');
+        return;
+      }
+      _close();
+    } catch (e) {
+      s.toast('Verschieben in Spam fehlgeschlagen: ${AppState.errText(e)}');
+    }
+  }
+
+  Widget _securityPanel(AppState s, MailDetail d, SecurityReport r) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final (Color bg, Color fg, IconData icon) = switch (r.level) {
+      RiskLevel.safe => (const Color(0xFF2E7D32), Colors.white, Icons.verified_user_outlined),
+      RiskLevel.suspicious => (const Color(0xFFF9A825), Colors.black, Icons.gpp_maybe),
+      RiskLevel.dangerous => (const Color(0xFFC62828), Colors.white, Icons.gpp_bad),
+    };
+    final inJunk = s.folder(d.item.accountId, d.item.folderPath)?.role == 'junk';
+    Widget bullet(String t) => Padding(
+          padding: const EdgeInsets.only(bottom: 3),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('•  '),
+            Expanded(child: Text(t)),
+          ]),
+        );
+    return Container(
+      key: const ValueKey('security-panel'),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(color: bg, width: 2),
+        borderRadius: BorderRadius.circular(8),
+        color: cs.surface,
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          color: bg,
+          child: Row(children: [
+            Icon(icon, color: fg, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('${r.level.label} – Risiko ${r.score}/100',
+                  key: ValueKey('security-level-${r.level.name}'),
+                  style: theme.textTheme.titleSmall?.copyWith(color: fg, fontWeight: FontWeight.bold)),
+            ),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (r.aiSummary != null && r.aiSummary!.isNotEmpty) ...[
+              Text(r.aiSummary!, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+            ],
+            if (r.aiUsed) ...[
+              Text('KI-Bewertung (${r.aiScore}/100)', style: theme.textTheme.labelLarge),
+              const SizedBox(height: 4),
+              if (r.aiReasons.isEmpty) bullet('Keine Begründung geliefert.'),
+              for (final t in r.aiReasons) bullet(t),
+              const SizedBox(height: 8),
+            ],
+            Text('Automatische Regelprüfung (${r.local.score}/100)', style: theme.textTheme.labelLarge),
+            const SizedBox(height: 4),
+            if (r.local.findings.isEmpty) bullet('Keine Auffälligkeiten bei Absender, Links und Anhängen.'),
+            for (final f in r.local.findings) bullet('${f.text}  (+${f.weight})'),
+            if (r.aiError != null) ...[
+              const SizedBox(height: 6),
+              Text(r.aiError!, key: const ValueKey('security-ai-error'),
+                  style: theme.textTheme.bodySmall?.copyWith(color: cs.error)),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              'Bitte prüfe die Analyse selbst. Keine Prüfung erkennt jeden Angriff – '
+              'im Zweifel keine Links öffnen, keine Anhänge starten und den Absender auf bekanntem Weg kontaktieren.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            if (inJunk)
+              Text('Die Mail liegt bereits im Spam-Ordner.', style: theme.textTheme.bodySmall)
+            else
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                r.level == RiskLevel.safe
+                    ? OutlinedButton.icon(
+                        key: const ValueKey('security-spam'),
+                        onPressed: () => _toSpam(s, d.item),
+                        icon: const Icon(Icons.report_outlined, size: 18),
+                        label: const Text('In Spam verschieben'),
+                      )
+                    : FilledButton.icon(
+                        key: const ValueKey('security-spam'),
+                        style: FilledButton.styleFrom(backgroundColor: bg, foregroundColor: fg),
+                        onPressed: () => _toSpam(s, d.item),
+                        icon: const Icon(Icons.report, size: 18),
+                        label: const Text('In Spam verschieben'),
+                      ),
+                TextButton(
+                  key: const ValueKey('security-close'),
+                  onPressed: () => setState(() => _security = null),
+                  child: const Text('Ausblenden'),
+                ),
+              ]),
+          ]),
+        ),
+      ]),
     );
   }
 }

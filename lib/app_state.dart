@@ -21,6 +21,7 @@ import 'push.dart';
 import 'storage.dart';
 import 'contacts.dart';
 import 'pgp.dart';
+import 'security_check.dart';
 
 int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
 
@@ -30,7 +31,7 @@ class AppState extends ChangeNotifier {
   final routeObserver = TopRouteObserver();
   final _storage = Storage();
   final mail = MailService();
-  final ai = AiService();
+  AiService ai = AiService();
 
   List<EchoAccount> accounts = [];
   AppSettings settings = AppSettings();
@@ -976,6 +977,63 @@ class AppState extends ChangeNotifier {
     final lines = list.map((i) => 'Von: ${i.sender} <${i.fromEmail}> | Betreff: ${i.subject}').toList();
     final res = await ai.sort(_key, _model, lines, targets);
     return {for (var i = 0; i < list.length; i++) list[i].key: res[i]};
+  }
+
+  /// Sicherheitsprüfung: Regeln immer, KI zusätzlich (falls Key hinterlegt). KI-Fehler → nur Regelergebnis.
+  Future<SecurityReport> securityCheck(MailDetail d) async {
+    if (d.pgp.confidential) throw const PgpException('Verschlüsselte Mails werden nicht an die KI gegeben.');
+    final atts = d.attachments.map((a) => a.name).toList();
+    final headers = SecurityCheck.headersOf(d.mime);
+    final local = SecurityCheck.local(
+      fromName: d.item.fromName,
+      fromEmail: d.item.fromEmail,
+      subject: d.subject,
+      text: d.text,
+      html: d.html,
+      headers: headers,
+      replyTo: d.replyToAddrs.map((a) => a.email).toList(),
+      attachmentNames: atts,
+    );
+    if (_key.trim().isEmpty) {
+      return SecurityReport(local, aiError: 'Kein Claude-API-Key hinterlegt – nur automatische Regelprüfung.');
+    }
+    try {
+      final (score, reasons, summary) = await ai.securityCheck(
+        _key,
+        _model,
+        SecurityCheck.prompt(
+          fromName: d.item.fromName,
+          fromEmail: d.item.fromEmail,
+          to: d.to,
+          subject: d.subject,
+          date: '${d.item.date}',
+          text: d.text,
+          local: local,
+          attachmentNames: atts,
+        ),
+      );
+      return SecurityReport(local, aiScore: score, aiReasons: reasons, aiSummary: summary);
+    } catch (e) {
+      return SecurityReport(local, aiError: 'KI-Prüfung nicht möglich (${errText(e)}) – nur automatische Regelprüfung.');
+    }
+  }
+
+  /// Spam-Ordner des Kontos (wird bei Bedarf als „Spam“ angelegt).
+  Future<String> spamPath(String accountId) async {
+    final j = await ensureRoleFolder(accountId, 'junk');
+    if (j != null) return j.path;
+    await mail.conn(accountId).createFolder('Spam');
+    folders.remove(accountId);
+    await loadFolders(accountId);
+    return roleFolder(accountId, 'junk')?.path ?? 'Spam';
+  }
+
+  /// Mail in den Spam-Ordner verschieben (mit Rückgängig). false = liegt schon dort.
+  Future<bool> moveToSpam(MailItem item) async {
+    final target = await spamPath(item.accountId);
+    if (item.folderPath == target) return false;
+    removeWithUndo([item], SwipeAction.move, target: target);
+    return true;
   }
 
   Future<void> moveItems(List<MailItem> list, String target) async {

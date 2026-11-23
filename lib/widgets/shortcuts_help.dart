@@ -33,7 +33,7 @@ const keyboardShortcuts = <(String, List<(String, String)>)>[
     ('Strg + R', 'Antworten'),
     ('Strg + Umschalt + R', 'Allen antworten'),
     ('Strg + F', 'Weiterleiten'),
-    ('Alt + 1 / 2 / 3', 'KI: Zusammenfassen / Antwortvorschläge / Ordner vorschlagen'),
+    ('Alt + 1 / 2 / 3 / 4', 'KI: Zusammenfassen / Antwortvorschläge / Ordner vorschlagen / Sicherheit prüfen'),
     ('Alt + B', 'Externe Bilder laden'),
     ('Esc', 'Mail schließen'),
   ]),
