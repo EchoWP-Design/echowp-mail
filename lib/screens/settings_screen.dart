@@ -4,10 +4,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models.dart';
 import '../spell.dart';
+import '../updater.dart';
 import '../widgets/common.dart';
 import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
@@ -283,11 +285,22 @@ class SettingsScreen extends StatelessWidget {
           subtitle: const Text('Komplette Bedienung per Tastatur – Übersicht auch jederzeit mit F1'),
           onTap: () => showShortcutsHelp(context),
         ),
+        header('Updates'),
+        const _UpdateTile(),
+        if (Updater.supported)
+          SwitchListTile(
+            key: const ValueKey('settings-auto-update'),
+            secondary: const Icon(Icons.update),
+            title: const Text('Beim Start automatisch prüfen'),
+            subtitle: const Text('Fragt GitHub nach einer neuen Version (keine persönlichen Daten)'),
+            value: st.autoUpdateCheck,
+            onChanged: (v) => s.updateSettings((x) => x.autoUpdateCheck = v),
+          ),
         header('Über'),
-        const ListTile(
-          leading: Icon(Icons.info_outline),
-          title: Text('EchoWP-Mail 6.1'),
-          subtitle: Text('Eigener Mail-Client für Android und Windows'),
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: Text('EchoWP-Mail ${shortVersion(appVersion)}${appBuild > 0 ? ' (Build $appBuild)' : ''}'),
+          subtitle: const Text('Eigener Mail-Client für Android und Windows'),
         ),
         const SizedBox(height: 32),
       ]),
@@ -336,5 +349,70 @@ class SettingsScreen extends StatelessWidget {
     } catch (e) {
       s.toast(AppState.errText(e));
     }
+  }
+}
+
+/// Stand der Update-Prüfung mit „Nach Updates suchen“ bzw. „Jetzt updaten“.
+class _UpdateTile extends StatelessWidget {
+  const _UpdateTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final u = s.update;
+    final progress = s.updateProgress;
+    final String status;
+    if (progress != null) {
+      status = 'Lade ${u?.label ?? 'Update'} … ${(progress * 100).round()} %';
+    } else if (s.updateChecking) {
+      status = 'Suche nach Updates …';
+    } else if (u != null) {
+      status = 'Update verfügbar: ${u.label}';
+    } else if (s.updateCheckedAt != null) {
+      status = 'Aktuell – v${shortVersion(appVersion)}';
+    } else {
+      status = 'Installiert: v${shortVersion(appVersion)}';
+    }
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(
+        key: const ValueKey('settings-update'),
+        leading: Icon(u != null ? Icons.system_update : Icons.verified_outlined,
+            color: u != null ? Theme.of(context).colorScheme.primary : null),
+        title: Text(status),
+        subtitle: s.updateError != null
+            ? Text(s.updateError!, style: TextStyle(color: Theme.of(context).colorScheme.error))
+            : (u != null ? const Text('Prüfsumme wird vor der Installation kontrolliert') : null),
+        trailing: (progress != null || s.updateChecking)
+                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                : u != null
+                    ? FilledButton(
+                        key: const ValueKey('update-install'),
+                        onPressed: s.installUpdate,
+                        child: const Text('Jetzt updaten'),
+                      )
+                    : TextButton(
+                        key: const ValueKey('update-check'),
+                        onPressed: () => s.checkForUpdate(manual: true),
+                        child: const Text('Suchen'),
+                      ),
+      ),
+      if (progress != null)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: LinearProgressIndicator(value: progress),
+        ),
+      if (u != null && progress == null)
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton.icon(
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: const Text('Download-Seite'),
+              onPressed: () => launchUrl(Uri.parse(u.pageUrl), mode: LaunchMode.externalApplication),
+            ),
+          ),
+        ),
+    ]);
   }
 }

@@ -2,7 +2,7 @@
 [Setup]
 AppId={{8C3F2A1E-5B7D-4E9A-A1C2-3D4E5F607182}
 AppName=EchoWP-Mail
-AppVersion=6.1.0
+AppVersion=6.2.0
 AppPublisher=EchoWP
 DefaultDirName={autopf}\EchoWP-Mail
 DefaultGroupName=EchoWP-Mail
@@ -17,6 +17,7 @@ PrivilegesRequired=lowest
 SetupIconFile=..\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\echowp_mail.exe
 WizardStyle=modern
+CloseApplications=yes
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
@@ -33,3 +34,11 @@ Name: "{autodesktop}\EchoWP-Mail"; Filename: "{app}\echowp_mail.exe"; Tasks: des
 
 [Run]
 Filename: "{app}\echowp_mail.exe"; Description: "EchoWP-Mail starten"; Flags: nowait postinstall skipifsilent
+; Update aus der App (/UPDATE=1, still): danach automatisch neu starten
+Filename: "{app}\echowp_mail.exe"; Flags: nowait; Check: IsAppUpdate
+
+[Code]
+function IsAppUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;

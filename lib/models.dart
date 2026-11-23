@@ -319,6 +319,7 @@ class AppSettings {
   String spellLang;
   bool pgpAutoEncrypt;
   bool pgpSignDefault;
+  bool autoUpdateCheck;
 
   AppSettings({
     this.themeMode = ThemeMode.system,
@@ -333,6 +334,7 @@ class AppSettings {
     this.spellLang = 'de-DE',
     this.pgpAutoEncrypt = true,
     this.pgpSignDefault = false,
+    this.autoUpdateCheck = true,
   });
 
   Map<String, dynamic> toJson() => {
@@ -347,6 +349,7 @@ class AppSettings {
         'spellLang': spellLang,
         'pgpAutoEncrypt': pgpAutoEncrypt,
         'pgpSignDefault': pgpSignDefault,
+        'autoUpdateCheck': autoUpdateCheck,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -361,5 +364,6 @@ class AppSettings {
         spellLang: j['spellLang'] as String? ?? 'de-DE',
         pgpAutoEncrypt: j['pgpAutoEncrypt'] as bool? ?? true,
         pgpSignDefault: j['pgpSignDefault'] as bool? ?? false,
+        autoUpdateCheck: j['autoUpdateCheck'] as bool? ?? true,
       );
 }

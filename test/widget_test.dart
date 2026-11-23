@@ -20,6 +20,8 @@ import 'package:echowp_mail/screens/contacts_screen.dart';
 import 'package:echowp_mail/screens/home_screen.dart';
 import 'package:echowp_mail/screens/message_screen.dart';
 import 'package:echowp_mail/security_check.dart';
+import 'package:echowp_mail/screens/settings_screen.dart';
+import 'package:echowp_mail/updater.dart';
 import 'package:echowp_mail/spell.dart';
 import 'package:echowp_mail/theme.dart';
 import 'package:echowp_mail/widgets/address_field.dart';
@@ -32,6 +34,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:cryptography/cryptography.dart' show Sha256;
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 EchoAccount _acc() => EchoAccount(
@@ -2408,4 +2413,174 @@ class _FakeAi extends AiService {
     this.prompt = prompt;
     return (5, ['Sieht harmlos aus'], 'Unbedenklich.');
   }
+  group('Updates', () {
+    Map<String, dynamic> rel(String tag, {List<Map<String, dynamic>>? assets}) => {
+          'tag_name': tag,
+          'html_url': 'https://github.com/EchoWP-Design/echowp-mail/releases/tag/$tag',
+          'draft': false,
+          'prerelease': false,
+          'assets': assets ??
+              [
+                {
+                  'name': 'EchoWP-Mail.apk',
+                  'browser_download_url': 'https://example.org/a.apk',
+                  'size': 10,
+                  'digest': 'sha256:${'AB' * 32}',
+                },
+                {'name': 'SHA256SUMS.txt', 'browser_download_url': 'https://example.org/sums', 'size': 1},
+              ],
+        };
+
+    test('Version in pubspec.yaml und App stimmen überein', () {
+      final pub = File('pubspec.yaml').readAsStringSync();
+      final v = RegExp(r'^version:\s*([0-9.]+)', multiLine: true).firstMatch(pub)!.group(1);
+      expect(appVersion, v);
+    });
+
+    test('Release wird ausgewertet', () {
+      final r = Updater.parse(rel('v6.10.0-build-77'))!;
+      expect(r.version, '6.10.0');
+      expect(r.build, 77);
+      expect(r.label, 'v6.10 (Build 77)');
+      expect(r.assets['EchoWP-Mail.apk']!.sha256, 'ab' * 32);
+      expect(r.assets['SHA256SUMS.txt']!.sha256, isNull);
+      expect(Updater.parse(rel('kaputt')), isNull);
+      expect(Updater.parse({...rel('v7.0.0-build-1'), 'prerelease': true}), isNull);
+      expect(shortVersion('6.2.0'), '6.2');
+      expect(shortVersion('6.2.1'), '6.2.1');
+    });
+
+    test('Versionen werden richtig verglichen', () {
+      expect(Updater.compareVersions('6.10.0', '6.9.3'), 1);
+      expect(Updater.compareVersions('6.2.0', '6.2.0'), 0);
+      expect(Updater.compareVersions('6.1.9', '6.2.0'), -1);
+      ReleaseInfo r(String v, int b) => Updater.parse(rel('v$v-build-$b'))!;
+      expect(Updater.isNewer(r('6.3.0', 1), current: '6.2.0', build: 60), isTrue);
+      expect(Updater.isNewer(r('6.1.0', 99), current: '6.2.0', build: 60), isFalse);
+      expect(Updater.isNewer(r('6.2.0', 61), current: '6.2.0', build: 60), isTrue);
+      expect(Updater.isNewer(r('6.2.0', 60), current: '6.2.0', build: 60), isFalse);
+      // eigene Build-Nummer unbekannt (lokaler Build) → gleiche Version ist kein Update
+      expect(Updater.isNewer(r('6.2.0', 61), current: '6.2.0', build: 0), isFalse);
+    });
+
+    test('passende Datei je Gerät', () {
+      expect(Updater.assetFor(platform: 'windows'), 'EchoWP-Mail-Setup.exe');
+      expect(Updater.assetFor(platform: 'android', dartVersion: '3.9.0 (stable) on "android_arm64"'),
+          'EchoWP-Mail.apk');
+      expect(Updater.assetFor(platform: 'android', dartVersion: '3.9.0 (stable) on "android_arm"'),
+          'EchoWP-Mail-alte-Geraete-32bit.apk');
+      expect(Updater.assetFor(platform: 'linux'), isNull);
+    });
+
+    test('GitHub-Abfrage: neueste Version, Fehler verständlich', () async {
+      final urls = <String>[];
+      final ok = Updater(client: () => MockClient((req) async {
+            urls.add(req.url.toString());
+            return http.Response(jsonEncode(rel('v9.0.0-build-99')), 200);
+          }));
+      expect((await ok.latest())!.tag, 'v9.0.0-build-99');
+      expect(urls, ['https://api.github.com/repos/EchoWP-Design/echowp-mail/releases/latest']);
+      final limit = Updater(client: () => MockClient((_) async => http.Response('', 403)));
+      await expectLater(limit.latest(), throwsA(isA<UpdateException>()));
+      final none = Updater(client: () => MockClient((_) async => http.Response('', 404)));
+      expect(await none.latest(), isNull);
+    });
+
+    test('Download prüft die Prüfsumme (auch aus SHA256SUMS.txt)', () async {
+      final data = utf8.encode('APK-Inhalt');
+      final hex = (await Sha256().hash(data)).bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      Map<String, dynamic> r(String? digest) => rel('v9.0.0-build-99', assets: [
+            {
+              'name': 'EchoWP-Mail.apk',
+              'browser_download_url': 'https://example.org/a.apk',
+              'size': data.length,
+              if (digest != null) 'digest': digest,
+            },
+            {'name': 'SHA256SUMS.txt', 'browser_download_url': 'https://example.org/sums', 'size': 1},
+          ]);
+      final u = Updater(
+          client: () => MockClient((req) async => req.url.path == '/sums'
+              ? http.Response('$hex  EchoWP-Mail.apk\n${'0' * 64}  EchoWP-Mail-Setup.exe\n', 200)
+              : http.Response.bytes(data, 200)));
+      final dir = Directory.systemTemp.createTempSync('echowp-upd');
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      final progress = <double>[];
+      final f = await u.download(Updater.parse(r('sha256:$hex'))!, 'EchoWP-Mail.apk',
+          into: dir, progress: progress.add);
+      expect(await f.readAsBytes(), data);
+      expect(progress.last, 1.0);
+      // ohne Prüfsumme von GitHub → aus SHA256SUMS.txt
+      final f2 = await u.download(Updater.parse(r(null))!, 'EchoWP-Mail.apk', into: dir);
+      expect(await f2.readAsBytes(), data);
+      // falsche Prüfsumme → abgebrochen, Datei gelöscht
+      await expectLater(u.download(Updater.parse(r('sha256:${'0' * 64}'))!, 'EchoWP-Mail.apk', into: dir),
+          throwsA(isA<UpdateException>()));
+      expect(dir.listSync(recursive: true).whereType<File>(), isEmpty);
+      // fehlende Datei im Release
+      await expectLater(u.download(Updater.parse(r(null))!, 'EchoWP-Mail-Setup.exe', into: dir),
+          throwsA(isA<UpdateException>()));
+    });
+
+    test('Installieren auf nicht unterstütztem System meldet Fehler', () async {
+      final s = AppState()..update = Updater.parse(rel('v9.0.0-build-99'));
+      await s.installUpdate();
+      expect(s.updateError, contains('nur für Android und Windows'));
+      expect(s.updateProgress, isNull);
+    });
+
+    testWidgets('Einstellungen: suchen meldet „aktuell“, neue Version zeigt „Jetzt updaten“', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..updater = Updater(
+            client: () => MockClient((_) async => http.Response(jsonEncode(rel('v1.0.0-build-1')), 200)));
+      await tester.pumpWidget(_wrap(s, const SettingsScreen()));
+      await tester.pump();
+      await tester.dragUntilVisible(
+          find.byKey(const ValueKey('settings-update')), find.byType(ListView), const Offset(0, -300));
+      await tester.pump();
+      expect(find.text('Installiert: v${shortVersion(appVersion)}'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('update-check')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(s.update, isNull);
+      expect(find.text('Aktuell – v${shortVersion(appVersion)}'), findsOneWidget);
+      expect(find.textContaining('ist aktuell'), findsOneWidget);
+
+      s.update = Updater.parse(rel('v9.0.0-build-99'));
+      s.refreshUi();
+      await tester.pump();
+      expect(find.text('Update verfügbar: v9.0 (Build 99)'), findsOneWidget);
+      expect(find.byKey(const ValueKey('update-install')), findsOneWidget);
+      expect(find.text('Download-Seite'), findsOneWidget);
+      await _drain(tester);
+    });
+
+    testWidgets('Banner auf der Startseite, „Später“ blendet ihn aus', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [_mail(1)]
+        ..update = Updater.parse(rel('v9.0.0-build-99'));
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('update-banner')), findsOneWidget);
+      expect(find.text('Update verfügbar: v9.0 (Build 99)'), findsOneWidget);
+      await tester.tap(find.text('Später'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('update-banner')), findsNothing);
+      expect(s.updateDismissed, 'v9.0.0-build-99');
+      await _drain(tester);
+    });
+  });
 }

@@ -43,7 +43,24 @@ def manifest(t: str) -> str:
             "    </application>",
             1,
         )
+    # Updates aus der App: APK im Cache über eigenen FileProvider an den System-Installer geben
+    if "UpdateFileProvider" not in t:
+        t = t.replace(
+            "</application>",
+            '    <provider\n'
+            '            android:name=".UpdateFileProvider"\n'
+            '            android:authorities="${applicationId}.updates"\n'
+            '            android:exported="false"\n'
+            '            android:grantUriPermissions="true">\n'
+            '            <meta-data\n'
+            '                android:name="android.support.FILE_PROVIDER_PATHS"\n'
+            '                android:resource="@xml/update_paths" />\n'
+            '        </provider>\n'
+            "    </application>",
+            1,
+        )
     for perm in [
+        "android.permission.REQUEST_INSTALL_PACKAGES",
         "android.permission.INTERNET",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.FOREGROUND_SERVICE",
@@ -56,6 +73,29 @@ def manifest(t: str) -> str:
 
 
 patch(root / "android/app/src/main/AndroidManifest.xml", manifest)
+
+# FileProvider für Updates: eigene Unterklasse (kein Konflikt mit FileProvidern aus Plugins)
+_kt_dir = root / "android/app/src/main/kotlin/de/echowp/echowp_mail"
+if (root / "android").exists():
+    if not _kt_dir.exists():
+        raise SystemExit(f"Update-Provider: Kotlin-Ordner fehlt: {_kt_dir}")
+    (_kt_dir / "UpdateFileProvider.kt").write_text(
+        "package de.echowp.echowp_mail\n\n"
+        "import androidx.core.content.FileProvider\n\n"
+        "/** Gibt heruntergeladene Update-APKs (Cache/updates) an den Android-Installer weiter. */\n"
+        "class UpdateFileProvider : FileProvider()\n",
+        encoding="utf-8",
+    )
+    _xml = root / "android/app/src/main/res/xml"
+    _xml.mkdir(parents=True, exist_ok=True)
+    (_xml / "update_paths.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<paths>\n"
+        '    <cache-path name="updates" path="updates/" />\n'
+        "</paths>\n",
+        encoding="utf-8",
+    )
+    print("angelegt: UpdateFileProvider.kt, res/xml/update_paths.xml")
 
 STORE = "../../keystore/echowp-release.jks"
 PW = os.environ.get("ANDROID_KEYSTORE_PASSWORD", "")
@@ -81,6 +121,9 @@ def gradle_kts(t: str) -> str:
     t = t.replace('signingConfigs.getByName("debug")', 'signingConfigs.getByName("release")')
     if "desugar_jdk_libs" not in t:
         t += '\ndependencies {\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n}\n'
+    # FileProvider (Update-Installation)
+    if "androidx.core:core" not in t:
+        t += '\ndependencies {\n    implementation("androidx.core:core:1.13.1")\n}\n'
     return t
 
 

@@ -53,7 +53,7 @@ jobs:
       - name: Automatische Tests
         run: flutter test --reporter expanded
       - name: APK bauen (je Prozessortyp, verkleinert)
-        run: flutter build apk --release --split-per-abi --target-platform android-arm64,android-arm
+        run: flutter build apk --release --split-per-abi --target-platform android-arm64,android-arm --dart-define=ECHOWP_BUILD=${{ github.run_number }}
       - name: APKs prüfen (Größe, versionCode, Signatur)
         run: |
           mkdir -p dist
@@ -91,7 +91,7 @@ jobs:
       - name: Plattform anpassen
         run: python tool/patch_platforms.py
       - name: EXE bauen
-        run: flutter build windows --release
+        run: flutter build windows --release --dart-define=ECHOWP_BUILD=${{ github.run_number }}
       - name: Installer und ZIP erstellen
         shell: pwsh
         run: |
@@ -124,6 +124,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Prüfsummen (für die Update-Funktion der App)
+        run: cd dist && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ steps.ver.outputs.full }}-build-${{ github.run_number }}

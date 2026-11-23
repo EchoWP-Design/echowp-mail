@@ -590,6 +590,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           leading: const Icon(Icons.error_outline),
           actions: [TextButton(onPressed: s.refresh, child: const Text('Erneut versuchen'))],
         ),
+      if (s.showUpdateBanner)
+        MaterialBanner(
+          key: const ValueKey('update-banner'),
+          leading: const Icon(Icons.system_update),
+          content: s.updateProgress != null
+              ? Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Lade ${s.update!.label} …'),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(value: s.updateProgress),
+                ])
+              : Text(s.updateError ?? 'Update verfügbar: ${s.update!.label}'),
+          actions: [
+            TextButton(onPressed: s.updateProgress == null ? s.dismissUpdate : null, child: const Text('Später')),
+            FilledButton(
+              onPressed: s.updateProgress == null ? s.installUpdate : null,
+              child: const Text('Jetzt updaten'),
+            ),
+          ],
+        ),
     ];
 
     return LayoutBuilder(

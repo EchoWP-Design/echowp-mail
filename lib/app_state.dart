@@ -22,6 +22,7 @@ import 'storage.dart';
 import 'contacts.dart';
 import 'pgp.dart';
 import 'security_check.dart';
+import 'updater.dart';
 
 int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
 
@@ -67,6 +68,101 @@ class AppState extends ChangeNotifier {
   /// OpenPGP: eigene Schlüssel (sicherer Speicher) und Entsperrung je Sitzung.
   final pgp = PgpService();
 
+  // ---------------------------------------------------------------- Updates
+
+  /// Austauschbar für Tests.
+  Updater updater = Updater();
+
+  /// Neuere Version auf GitHub (null = keine bekannt).
+  ReleaseInfo? update;
+  bool updateChecking = false;
+  /// Download-Fortschritt 0..1, null = kein Download.
+  double? updateProgress;
+  String? updateError;
+  /// Zeitpunkt der letzten erfolgreichen Prüfung.
+  DateTime? updateCheckedAt;
+  /// Für diese Version wurde „Später“ gewählt (Banner ausblenden).
+  String? updateDismissed;
+  Timer? _updateTimer;
+
+  bool get showUpdateBanner => update != null && update!.tag != updateDismissed;
+
+  /// Fragt GitHub nach der neuesten Version. [manual] = Knopf in den Einstellungen.
+  Future<void> checkForUpdate({bool manual = false}) async {
+    if (updateChecking || updateProgress != null) return;
+    updateChecking = true;
+    updateError = null;
+    notifyListeners();
+    try {
+      final r = await updater.latest();
+      update = r != null && Updater.isNewer(r) ? r : null;
+      updateCheckedAt = DateTime.now();
+      if (manual && update == null) toast('EchoWP-Mail ist aktuell (v${shortVersion(appVersion)}).');
+    } catch (e) {
+      if (manual) updateError = e.toString();
+    } finally {
+      updateChecking = false;
+      notifyListeners();
+    }
+  }
+
+  /// Beim Start und danach einmal täglich (z. B. wenn der PC tagelang läuft).
+  void _startUpdateChecks() {
+    _updateTimer?.cancel();
+    if (!Updater.supported || !settings.autoUpdateCheck) return;
+    checkForUpdate();
+    _updateTimer = Timer.periodic(const Duration(hours: 24), (_) => checkForUpdate());
+  }
+
+  Future<void> dismissUpdate() async {
+    updateDismissed = update?.tag;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    if (updateDismissed != null) await p.setString('update_dismissed', updateDismissed!);
+  }
+
+  /// Lädt die neue Version, prüft die Prüfsumme und startet die Installation.
+  Future<void> installUpdate() async {
+    final r = update;
+    if (r == null || updateProgress != null) return;
+    final name = Updater.assetFor();
+    if (name == null) {
+      updateError = 'Updates gibt es nur für Android und Windows.';
+      notifyListeners();
+      return;
+    }
+    // Portable Windows-Version: nicht installiert → Download-Seite öffnen
+    if (Platform.isWindows && !Updater.windowsInstalled) {
+      updateError = 'Portable Version: bitte die neue ZIP von der Download-Seite entpacken.';
+      notifyListeners();
+      return;
+    }
+    updateError = null;
+    updateProgress = 0;
+    notifyListeners();
+    var last = 0.0;
+    try {
+      final f = await updater.download(r, name, progress: (v) {
+        // nicht bei jedem Datenpaket neu zeichnen
+        if (v - last >= 0.01 || v >= 1) {
+          last = v;
+          updateProgress = v;
+          notifyListeners();
+        }
+      });
+      updateProgress = null;
+      notifyListeners();
+      if (Platform.isAndroid) {
+        toast('Installation bestätigen – beim ersten Mal „Unbekannte Apps installieren“ erlauben.');
+      }
+      await whileAway(() => updater.install(f));
+    } catch (e) {
+      updateProgress = null;
+      updateError = e.toString();
+      notifyListeners();
+    }
+  }
+
   // ---------------------------------------------------------------- Laden
 
   Future<void> load() async {
@@ -89,6 +185,10 @@ class AppState extends ChangeNotifier {
       refresh();
     }
     _startPolling();
+    try {
+      updateDismissed = (await SharedPreferences.getInstance()).getString('update_dismissed');
+    } catch (_) {}
+    _startUpdateChecks();
   }
 
   EchoAccount? account(String? id) {
@@ -1143,9 +1243,11 @@ class AppState extends ChangeNotifier {
   Future<void> updateSettings(void Function(AppSettings s) change) async {
     final oldPoll = settings.pollMinutes;
     final oldNotify = settings.notifications;
+    final oldUpdate = settings.autoUpdateCheck;
     change(settings);
     await _storage.saveSettings(settings);
     if (oldPoll != settings.pollMinutes || oldNotify != settings.notifications) _startPolling();
+    if (oldUpdate != settings.autoUpdateCheck) _startUpdateChecks();
     notifyListeners();
     await _markChanged();
   }
