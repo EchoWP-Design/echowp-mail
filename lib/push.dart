@@ -75,7 +75,7 @@ class PushWatcher {
   Future<void> _session() async {
     final c = await openImap(account);
     _client = c;
-    await c.selectMailboxByPath(path);
+    await selectFolder(c, path);
     final lost = Completer<void>();
     _sub = c.eventBus.on<em.ImapEvent>().listen((e) {
       if (e is em.ImapMessagesExistEvent && e.newMessagesExists > e.oldMessagesExists) {

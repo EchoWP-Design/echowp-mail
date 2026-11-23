@@ -1155,6 +1155,14 @@ void main() {
       await _drain(tester);
     });
 
+    test('Ordnerpfade mit Umlauten werden für IMAP kodiert (WEB.DE „Unerwünscht“)', () {
+      expect(encodeImapPath('Unerwünscht', '/'), 'Unerw&APw-nscht');
+      expect(encodeImapPath('INBOX/Entwürfe', '/'), 'INBOX/Entw&APw-rfe');
+      expect(encodeImapPath('Gelöscht.Alt', '.'), 'Gel&APY-scht.Alt');
+      expect(encodeImapPath('Firma & Co', '/'), 'Firma &- Co');
+      expect(encodeImapPath('INBOX', '/'), 'INBOX');
+    });
+
     test('Spam-Ordner am Namen erkennen (WEB.DE „Unerwünscht“, GMX „Spamverdacht“)', () {
       for (final n in ['Unerwünscht', 'unerwuenscht', 'Spamverdacht', 'Spam', 'Junk-E-Mail', 'Junk E-Mail', 'Bulk Mail']) {
         expect(folderRoleForName(n), 'junk', reason: n);

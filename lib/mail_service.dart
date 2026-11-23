@@ -154,6 +154,24 @@ String htmlToText(String html) {
   return t.trim();
 }
 
+/// Ordnerpfad für IMAP kodieren (Modified UTF-7, RFC 3501 5.1.3) – jedes Pfadstück einzeln.
+/// Beispiel: „Unerwünscht“ → „Unerw&APw-nscht“.
+String encodeImapPath(String path, String separator) {
+  if (separator.isEmpty) return em.Mailbox.encode(path, '/');
+  return path.split(separator).map((p) => em.Mailbox.encode(p, separator)).join(separator);
+}
+
+/// Ordner öffnen (SELECT). enough_mail 2.x schickt bei `selectMailboxByPath` den Pfad
+/// UNKODIERT – Umlaute (WEB.DE „Unerwünscht“) lehnt der Server dann mit
+/// „unsupported folder name“ ab. Daher: bekanntes Mailbox-Objekt nutzen, sonst selbst kodieren.
+Future<em.Mailbox> selectFolder(em.ImapClient c, String path, {em.Mailbox? known}) async {
+  if (known != null) return c.selectMailbox(known);
+  if (c.serverInfo.pathSeparator == null) await c.listMailboxes();
+  final sep = c.serverInfo.pathSeparator ?? '/';
+  final encoded = c.serverInfo.supportsUtf8 ? path : encodeImapPath(path, sep);
+  return c.selectMailboxByPath(encoded);
+}
+
 String _roleOf(em.Mailbox b) {
   if (b.isInbox) return 'inbox';
   if (b.isSent) return 'sent';
@@ -309,7 +327,7 @@ class AccountConnection {
   Future<em.Mailbox> _select(em.ImapClient c, String path, {bool force = false}) async {
     final current = _selectedBox;
     if (!force && _selectedPath == path && current != null) return current;
-    final box = await c.selectMailboxByPath(path);
+    final box = await selectFolder(c, path, known: _boxes[path]);
     _selectedPath = path;
     _selectedBox = box;
     return box;
