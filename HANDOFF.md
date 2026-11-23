@@ -1,26 +1,24 @@
-# Übergabe – 2026-11-23, 03:30
+# Übergabe – 2026-11-23, 04:10
 
 ## Ziel der Sitzung
-KI-Werkzeug „Sicherheit prüfen“ (Phishing/Betrug/Schadsoftware) + Knopf „In Spam verschieben“ → v6.1.
+Updates direkt aus der App (Einstellungen → „Update verfügbar“ → „Jetzt updaten“) → v6.2.
 
 ## Erledigt
-- `lib/security_check.dart`: Regelprüfung offline (SPF/DKIM/DMARC aus Authentication-Results/Received-SPF, Anzeigename mit fremder Adresse, Marken-Imitation im Namen und in Link-Domains, Linktext ≠ Ziel (Newsletter-Zähldienste nur +5), IP/Punycode/Kurzlinks/@ im Link, Formulare/Skripte, gefährliche Anhänge inkl. doppelter Endung, Formulierungen)
-- `AiService.securityCheck` (JSON score/gruende/fazit, Mailtext als nicht vertrauenswürdig markiert); `AppState.securityCheck`: Endwert = max(Regeln, KI); ohne Key/bei KI-Fehler nur Regeln
-- `AppState.moveToSpam/spamPath`: Spam-Ordner (Rolle junk), sonst „Spam“ anlegen; Verschieben mit Rückgängig
-- UI: Knopf „Sicherheit prüfen“ in der KI-Karte, Alt+4, Ergebnis-Panel (grün/gelb/rot), „In Spam verschieben“
-- `AppState.ai` jetzt austauschbar (Tests mit `_FakeAi`)
-- Release v6.1.0-build-51, 94/94 Tests – cbcb46e
+- `lib/updater.dart`: GitHub `releases/latest` (ohne Anmeldung), Tag `v<x.y.z>-build-<N>` auswerten, Vergleich Version + Build (`--dart-define=ECHOWP_BUILD=run_number`), passende Datei je Gerät (arm64/armv7 über `Platform.version`, Windows Setup.exe), Download mit SHA-256 (GitHub-`digest`, sonst `SHA256SUMS.txt`)
+- Android: FileProvider `.UpdateFileProvider` (Authority `de.echowp.echowp_mail.updates`, Cache `updates/`), `REQUEST_INSTALL_PACKAGES`, androidx.core – alles in `tool/patch_platforms.py`; Installation per ACTION_VIEW-Intent
+- Windows: Setup.exe `/SILENT /UPDATE=1` → App beendet sich, Inno startet sie neu (`[Code] IsAppUpdate`); portable ZIP → Hinweis auf Download-Seite
+- AppState: `checkForUpdate`, `installUpdate`, `dismissUpdate`; Prüfung beim Start + alle 24 h (Einstellung `autoUpdateCheck`)
+- UI: Einstellungen → Updates (Status, Suchen / Jetzt updaten, Download-Seite), Banner auf der Startseite mit „Später“
+- CI: Release enthält `SHA256SUMS.txt`
+- Release v6.2.0-build-53, 103/103 Tests – Run 45103239231 grün
 
 ## Offen / nächster Schritt
-1. Jans Rückmeldung zu v6.1 (Fehlalarme bei echten Firmenmails? Markenliste/Domains ggf. ergänzen)
-2. Ideen: Prüfung automatisch beim Öffnen (nur Regeln, ohne KI), Absender „vertrauen“, Warnbanner in der Liste
+1. Jan muss v6.2 **einmal von Hand** installieren (6.1 hat noch keinen Updater); erst ab dem nächsten Release testbar
+2. Beim nächsten Release echten Update-Durchlauf auf Handy und PC prüfen (Android-Dialog „Unbekannte Apps“, Windows-Neustart)
 
 ## Entscheidungen
-- Regeln bilden die Untergrenze – die KI kann den Wert nur erhöhen (Schutz vor Prompt-Injektion)
-- Verschlüsselte Mails: keine Sicherheitsprüfung (KI-Karte ausgeblendet)
-
-## Bekannte Probleme
-- Handy-Widget-Test: `ensureVisible` erreichte den Spam-Knopf nicht → `dragUntilVisible`
+- Ohne Prüfsumme kein Update; nur Releases (keine Drafts/Prereleases)
+- Gleiche Version zählt nur als Update, wenn die eigene Build-Nummer bekannt ist
 
 ## Zustand
-- Branch `main`, Code-Commit cbcb46e; Run 45098041114 grün
+- Branch `main`, Code-Commit 008b83e
