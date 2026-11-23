@@ -10,6 +10,10 @@
 - Kein Treffer → Dialog `widgets/spam_folder_dialog.dart` (Ordner wählen oder „Spam“ anlegen)
 - Ordner-Menü: „Als Spam-Ordner festlegen“ / zurücksetzen
 
+## Nachtrag v6.2.3 (Build 56, Commit 4c19600, 109 Tests)
+- Ordner „Unerwünscht“ ließ sich nicht öffnen: enough_mail 2.x `selectMailboxByPath` schickt den Pfad unkodiert → WEB.DE „unsupported folder name“
+- Neu `selectFolder`/`encodeImapPath` (mail_service.dart): bekanntes Mailbox-Objekt bzw. Modified UTF-7 je Pfadstück; genutzt in `_select` und push.dart
+
 ## Offen / nächster Schritt
 1. Jan: 6.2.2 über „Jetzt updaten“ installieren (erster echter Updater-Test), Ergebnis prüfen
 2. Jan: falls im WEB.DE-Postfach ein Ordner „Spam“ entstanden ist, dort löschen
