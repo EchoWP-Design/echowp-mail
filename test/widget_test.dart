@@ -1086,7 +1086,8 @@ void main() {
       expect(find.text('KI-Bewertung (5/100)'), findsOneWidget);
       expect(find.text('Sieht harmlos aus'), findsOneWidget);
       final spam = find.byKey(const ValueKey('security-spam'));
-      await tester.ensureVisible(spam);
+      await tester.dragUntilVisible(spam, find.byType(ListView), const Offset(0, -300));
+      await tester.pump();
       await tester.tap(spam);
       await tester.pump();
       expect(s.items, isEmpty);
