@@ -27,6 +27,7 @@ import 'package:echowp_mail/theme.dart';
 import 'package:echowp_mail/widgets/address_field.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
+import 'package:echowp_mail/widgets/folder_sync_sheet.dart';
 import 'package:echowp_mail/widgets/mail_tile.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -1137,12 +1138,170 @@ void main() {
       await tester.tap(spam);
       await tester.pump();
       await tester.pump();
+      // kein Spam-Ordner erkannt → Auswahl statt stillem Anlegen
+      expect(find.byKey(const ValueKey('spam-picker')), findsOneWidget);
+      expect(conn.created, isEmpty);
+      await tester.tap(find.byKey(const ValueKey('spam-pick-create')));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
       expect(conn.created, ['Spam']);
+      expect(s.account('a1')!.junkFolder, 'Spam');
       expect(s.roleFolder('a1', 'junk')?.path, 'Spam');
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(seconds: 1));
       }
       expect(conn.moves, ['INBOX:7->Spam']);
+      await _drain(tester);
+    });
+
+    test('Spam-Ordner am Namen erkennen (WEB.DE „Unerwünscht“, GMX „Spamverdacht“)', () {
+      for (final n in ['Unerwünscht', 'unerwuenscht', 'Spamverdacht', 'Spam', 'Junk-E-Mail', 'Junk E-Mail', 'Bulk Mail']) {
+        expect(folderRoleForName(n), 'junk', reason: n);
+      }
+      expect(folderRoleForName('Gelöschte Elemente'), 'trash');
+      expect(folderRoleForName('Entwürfe'), 'drafts');
+      expect(folderRoleForName('Rechnungen'), 'other');
+      const f = FolderInfo(path: 'Unerwünscht', name: 'Unerwünscht', role: 'junk', selectable: true, depth: 0);
+      expect(f.displayName, 'Unerwünscht', reason: 'echter Name statt „Spam“');
+    });
+
+    test('Server-Kennung schlägt Namen; Festlegung schlägt beides', () {
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = [
+          ..._folders,
+          const FolderInfo(path: 'Spam', name: 'Spam', role: 'junk', selectable: true, depth: 0),
+          const FolderInfo(path: 'Unerwünscht', name: 'Unerwünscht', role: 'junk', selectable: true, depth: 0, special: true),
+        ];
+      expect(s.roleFolder('a1', 'junk')?.path, 'Unerwünscht');
+      final applied = AppState.applyJunkFolder(s.folders['a1']!, 'Rechnungen');
+      expect(applied.where((f) => f.role == 'junk').map((f) => f.path), ['Rechnungen']);
+      expect(AppState.applyJunkFolder(s.folders['a1']!, 'gibt-es-nicht'), same(s.folders['a1']));
+      final acc = EchoAccount.fromJson({..._acc().toJson(), 'junkFolder': 'Rechnungen'});
+      expect(acc.junkFolder, 'Rechnungen');
+      expect(_acc().toJson().containsKey('junkFolder'), isFalse);
+    });
+
+    testWidgets('WEB.DE: „Unerwünscht“ wird direkt genutzt, kein Ordner angelegt', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final item = phishItem();
+      final conn = _SpamConn(_acc(), phishRaw);
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = [
+          ..._folders,
+          FolderInfo(path: 'Unerwünscht', name: 'Unerwünscht', role: folderRoleForName('Unerwünscht'), selectable: true, depth: 0),
+        ]
+        ..items = [item]
+        ..ai = _FakeAi();
+      s.mail.put('a1', conn);
+      await tester.pumpWidget(_wrap(s, Scaffold(body: MessageView(item: item, embedded: true))));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Sicherheit prüfen'));
+      await tester.pump();
+      await tester.pump();
+      final spam = find.byKey(const ValueKey('security-spam'));
+      await tester.ensureVisible(spam);
+      await tester.tap(spam);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('spam-picker')), findsNothing);
+      expect(find.textContaining('verschoben nach „Unerwünscht“'), findsOneWidget);
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(conn.created, isEmpty);
+      expect(conn.moves, ['INBOX:7->Unerwünscht']);
+      await _drain(tester);
+    });
+
+    testWidgets('Handy: Spam-Ordner auswählen und merken', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final item = phishItem();
+      final conn = _SpamConn(_acc(), phishRaw);
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [item]
+        ..ai = _FakeAi();
+      s.mail.put('a1', conn);
+      s.openItem = item;
+      await tester.pumpWidget(_wrap(s, Scaffold(body: MessageView(item: item, embedded: true))));
+      await tester.pump();
+      await tester.pump();
+      final btn = find.text('Sicherheit prüfen');
+      await tester.ensureVisible(btn);
+      await tester.tap(btn);
+      await tester.pump();
+      await tester.pump();
+      final spam = find.byKey(const ValueKey('security-spam'));
+      await tester.dragUntilVisible(spam, find.byType(ListView).first, const Offset(0, -300));
+      await tester.pump();
+      await tester.tap(spam);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('spam-picker')), findsOneWidget);
+      expect(find.byKey(const ValueKey('spam-pick-Gesendet')), findsNothing, reason: 'Sonderordner nicht anbieten');
+      await tester.tap(find.byKey(const ValueKey('spam-pick-Rechnungen')));
+      await tester.pump();
+      await tester.pump();
+      expect(s.account('a1')!.junkFolder, 'Rechnungen');
+      expect(s.roleFolder('a1', 'junk')?.path, 'Rechnungen');
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(conn.created, isEmpty);
+      expect(conn.moves, ['INBOX:7->Rechnungen']);
+      await _drain(tester);
+    });
+
+    testWidgets('Ordner-Menü: als Spam-Ordner festlegen und zurücksetzen', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      const f = FolderInfo(path: 'Rechnungen', name: 'Rechnungen', role: 'other', selectable: true, depth: 0);
+      await tester.pumpWidget(_wrap(
+        s,
+        Scaffold(
+          body: Builder(
+            builder: (ctx) => TextButton(
+              onPressed: () => showFolderSyncSheet(ctx, s.account('a1')!, s.folder('a1', 'Rechnungen') ?? f),
+              child: const Text('öffnen'),
+            ),
+          ),
+        ),
+      ));
+      Future<void> open() async {
+        await tester.tap(find.text('öffnen'));
+        await tester.pumpAndSettle();
+      }
+
+      await open();
+      final set = find.byKey(const ValueKey('folder-set-junk'));
+      await tester.ensureVisible(set);
+      await tester.tap(set);
+      await tester.pumpAndSettle();
+      expect(s.account('a1')!.junkFolder, 'Rechnungen');
+      expect(s.roleFolder('a1', 'junk')?.path, 'Rechnungen');
+      await open();
+      final reset = find.byKey(const ValueKey('folder-junk-auto'));
+      await tester.ensureVisible(reset);
+      await tester.tap(reset);
+      await tester.pumpAndSettle();
+      expect(s.account('a1')!.junkFolder, '');
+      expect(s.roleFolder('a1', 'junk'), isNull);
       await _drain(tester);
     });
   });

@@ -88,6 +88,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
+| **6.2.2** | Spam-Ordner wird auch unter anderem Namen erkannt (WEB.DE „Unerwünscht“, GMX „Spamverdacht“ u. a.); ohne Treffer Auswahl statt stillem Anlegen; Ordner-Menü „Als Spam-Ordner festlegen“ |
 | **6.2.1** | Android-Update ohne Berechtigung „Andere Apps installieren“ (Play Protect blockierte 6.2): „Jetzt updaten“ lädt die APK im Browser |
 | 6.2 | Updates direkt aus der App: Einstellungen → Updates („Suchen“ / „Jetzt updaten“), Prüfung beim Start und täglich, Hinweisbanner; Download mit SHA-256-Kontrolle; Android über den System-Installer, Windows über den Installer mit Neustart |
 | 6.1 | KI-Werkzeug „Sicherheit prüfen“: Phishing-/Betrugs-/Schadsoftware-Prüfung (Regeln + KI) mit Risikowert, Begründung und Knopf „In Spam verschieben“ |

@@ -14,6 +14,7 @@ import '../pgp.dart';
 import '../security_check.dart';
 import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
+import '../widgets/spam_folder_dialog.dart';
 import 'compose_screen.dart';
 import 'contacts_screen.dart';
 import 'pgp_screen.dart';
@@ -636,7 +637,13 @@ class _MessageViewState extends State<MessageView> {
 
   Future<void> _toSpam(AppState s, MailItem item) async {
     try {
-      final moved = await s.moveToSpam(item);
+      var target = await s.spamPath(item.accountId);
+      if (target == null) {
+        if (!mounted) return;
+        target = await pickSpamFolder(context, s, item.accountId);
+        if (target == null) return;
+      }
+      final moved = await s.moveToSpam(item, target: target);
       if (!moved) {
         s.toast('Die Mail liegt bereits im Spam-Ordner.');
         return;

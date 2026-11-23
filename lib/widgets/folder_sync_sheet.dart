@@ -99,6 +99,32 @@ class FolderSyncSheet extends StatelessWidget {
               ),
             ),
           const Divider(),
+          if (acc.junkFolder == folder.path)
+            ListTile(
+              key: const ValueKey('folder-junk-auto'),
+              leading: const Icon(Icons.report_off_outlined),
+              title: const Text('Nicht mehr als Spam-Ordner verwenden'),
+              subtitle: const Text('Spam-Ordner wieder automatisch erkennen'),
+              onTap: () {
+                Navigator.pop(context);
+                s.setJunkFolder(accountId, '');
+              },
+            )
+          else if (folder.role == 'other' || folder.role == 'junk' || folder.role == 'archive')
+            ListTile(
+              key: const ValueKey('folder-set-junk'),
+              leading: const Icon(Icons.report_outlined),
+              title: Text(folder.role == 'junk' ? 'Spam-Ordner (erkannt)' : 'Als Spam-Ordner festlegen'),
+              subtitle: Text(folder.role == 'junk'
+                  ? 'Hierhin verschiebt „In Spam verschieben“'
+                  : '„In Spam verschieben“ nutzt dann diesen Ordner'),
+              enabled: folder.role != 'junk',
+              onTap: () {
+                Navigator.pop(context);
+                s.setJunkFolder(accountId, folder.path);
+                s.toast('„${folder.name}“ ist jetzt der Spam-Ordner.');
+              },
+            ),
           ListTile(
             leading: const Icon(Icons.sync),
             title: const Text('Jetzt synchronisieren'),

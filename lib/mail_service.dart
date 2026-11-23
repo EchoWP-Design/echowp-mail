@@ -161,18 +161,38 @@ String _roleOf(em.Mailbox b) {
   if (b.isTrash) return 'trash';
   if (b.isJunk) return 'junk';
   if (b.isArchive || b.flags.contains(em.MailboxFlag.all)) return 'archive';
-  final n = b.name.toLowerCase();
   if (b.path.toUpperCase() == 'INBOX') return 'inbox';
-  if (['gesendet', 'sent', 'gesendete objekte', 'sent items', 'sent messages', 'gesendete elemente'].contains(n)) {
-    return 'sent';
-  }
-  if (['entwürfe', 'entwurf', 'drafts', 'draft'].contains(n)) return 'drafts';
-  if (['papierkorb', 'gelöscht', 'trash', 'deleted', 'deleted items', 'gelöschte objekte', 'gelöschte elemente']
-      .contains(n)) {
-    return 'trash';
-  }
-  if (['spam', 'junk', 'junk-e-mail', 'spamverdacht'].contains(n)) return 'junk';
-  if (['archiv', 'archive', 'alle nachrichten', 'all mail'].contains(n)) return 'archive';
+  return folderRoleForName(b.name);
+}
+
+/// Ordnername vereinfachen: klein, Umlaute ausgeschrieben, nur Buchstaben/Ziffern.
+String normalizeFolderName(String name) => name
+    .toLowerCase()
+    .replaceAll('ä', 'ae')
+    .replaceAll('ö', 'oe')
+    .replaceAll('ü', 'ue')
+    .replaceAll('ß', 'ss')
+    .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+const _namesSent = {'gesendet', 'sent', 'gesendeteobjekte', 'sentitems', 'sentmessages', 'gesendeteelemente', 'gesendetenachrichten', 'sentmail'};
+const _namesDrafts = {'entwuerfe', 'entwurf', 'drafts', 'draft'};
+const _namesTrash = {'papierkorb', 'geloescht', 'trash', 'deleted', 'deleteditems', 'deletedmessages', 'geloeschteobjekte', 'geloeschteelemente', 'geloeschtenachrichten', 'bin'};
+const _namesJunk = {
+  'spam', 'junk', 'junkemail', 'junkmail', 'junke', 'spamverdacht', 'spamordner', 'bulk', 'bulkmail',
+  'unerwuenscht', 'unerwuenschtemails', 'unerwuenschteemails', 'unerwuenschtenachrichten', 'werbungspam',
+};
+const _namesArchive = {'archiv', 'archive', 'allenachrichten', 'allmail'};
+
+/// Rolle aus dem Ordnernamen, falls der Server keine Sonderordner-Kennung (RFC 6154) liefert.
+/// Beispiel: WEB.DE nennt den Spam-Ordner „Unerwünscht“, GMX „Spamverdacht“.
+String folderRoleForName(String name) {
+  final n = normalizeFolderName(name);
+  if (n == 'inbox') return 'inbox';
+  if (_namesSent.contains(n)) return 'sent';
+  if (_namesDrafts.contains(n)) return 'drafts';
+  if (_namesTrash.contains(n)) return 'trash';
+  if (_namesJunk.contains(n)) return 'junk';
+  if (_namesArchive.contains(n)) return 'archive';
   return 'other';
 }
 
@@ -315,6 +335,7 @@ class AccountConnection {
             path: b.path,
             name: b.name,
             role: _roleOf(b),
+            special: b.isJunk || b.isSent || b.isDrafts || b.isTrash || b.isArchive,
             selectable: !noSelect.contains(b.path),
             depth: max(0, depth),
           );

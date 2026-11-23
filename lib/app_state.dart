@@ -221,10 +221,47 @@ class AppState extends ChangeNotifier {
   }
 
   FolderInfo? roleFolder(String accountId, String role) {
+    FolderInfo? byName;
     for (final f in folders[accountId] ?? const <FolderInfo>[]) {
-      if (f.role == role && f.selectable) return f;
+      if (f.role != role || !f.selectable) continue;
+      if (f.special) return f; // Kennung des Servers schlägt Namenserkennung
+      byName ??= f;
     }
-    return null;
+    return byName;
+  }
+
+  /// Vom Server gelieferte Ordnerliste (ohne Jans Spam-Festlegung).
+  final Map<String, List<FolderInfo>> _serverFolders = {};
+
+  /// Jans festgelegten Spam-Ordner anwenden: dieser wird „junk“, alle anderen verlieren die Rolle.
+  static List<FolderInfo> applyJunkFolder(List<FolderInfo> list, String junkPath) {
+    if (junkPath.isEmpty || !list.any((f) => f.path == junkPath && f.selectable)) return list;
+    return [
+      for (final f in list)
+        if (f.path == junkPath)
+          f.withRole('junk', special: true)
+        else if (f.role == 'junk')
+          f.withRole('other', special: false)
+        else
+          f,
+    ];
+  }
+
+  void _setFolders(String accountId, List<FolderInfo> list) {
+    _serverFolders[accountId] = list;
+    folders[accountId] = applyJunkFolder(list, account(accountId)?.junkFolder ?? '');
+  }
+
+  /// Spam-Ordner festlegen (leer = wieder automatisch erkennen). Wird mit dem Konto gespeichert und abgeglichen.
+  Future<void> setJunkFolder(String accountId, String path) async {
+    final a = account(accountId);
+    if (a == null) return;
+    a.junkFolder = path;
+    final raw = _serverFolders[accountId] ?? folders[accountId];
+    if (raw != null) _setFolders(accountId, raw);
+    await _storage.saveAccounts(accounts);
+    notifyListeners();
+    await _markChanged();
   }
 
   String get viewTitle {
@@ -243,7 +280,7 @@ class AppState extends ChangeNotifier {
     if (running != null) return running;
     final f = () async {
       try {
-        folders[accountId] = await mail.conn(accountId).listFolders();
+        _setFolders(accountId, await mail.conn(accountId).listFolders());
         _scheduleCounts(accountId, delay: Duration.zero);
       } catch (e) {
         toast('Ordner konnten nicht geladen werden: ${errText(e)}');
@@ -1133,19 +1170,29 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Spam-Ordner des Kontos (wird bei Bedarf als „Spam“ angelegt).
-  Future<String> spamPath(String accountId) async {
-    final j = await ensureRoleFolder(accountId, 'junk');
-    if (j != null) return j.path;
+  /// Spam-Ordner des Kontos: Jans Festlegung, sonst Server-Kennung \Junk, sonst Name
+  /// (Spam, Junk, Unerwünscht, Spamverdacht …). null = keiner erkannt → Jan wählen lassen.
+  Future<String?> spamPath(String accountId) async => (await ensureRoleFolder(accountId, 'junk'))?.path;
+
+  /// Neuen Ordner „Spam“ anlegen und als Spam-Ordner festlegen.
+  Future<String> createSpamFolder(String accountId) async {
     await mail.conn(accountId).createFolder('Spam');
     folders.remove(accountId);
+    _serverFolders.remove(accountId);
     await loadFolders(accountId);
-    return roleFolder(accountId, 'junk')?.path ?? 'Spam';
+    final created = folder(accountId, 'Spam');
+    if (created == null || !created.selectable) {
+      throw StateError('Ordner „Spam“ wurde nicht angelegt.');
+    }
+    await setJunkFolder(accountId, 'Spam');
+    return 'Spam';
   }
 
   /// Mail in den Spam-Ordner verschieben (mit Rückgängig). false = liegt schon dort.
-  Future<bool> moveToSpam(MailItem item) async {
-    final target = await spamPath(item.accountId);
+  /// Ohne [target] wird der erkannte Spam-Ordner genommen; gibt es keinen → StateError.
+  Future<bool> moveToSpam(MailItem item, {String? target}) async {
+    target ??= await spamPath(item.accountId);
+    if (target == null) throw StateError('Kein Spam-Ordner gefunden.');
     if (item.folderPath == target) return false;
     removeWithUndo([item], SwipeAction.move, target: target);
     return true;

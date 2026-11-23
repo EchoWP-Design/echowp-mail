@@ -96,6 +96,9 @@ class EchoAccount {
   /// Abweichende Sync-Einstellungen je Ordnerpfad (fehlend = Standard).
   Map<String, FolderSync> folderSync;
 
+  /// Von Jan festgelegter Spam-Ordner (leer = automatisch erkennen).
+  String junkFolder;
+
   EchoAccount({
     String? id,
     this.name = '',
@@ -111,6 +114,7 @@ class EchoAccount {
     this.signature = '',
     this.color = 0xFF0288D1,
     Map<String, FolderSync>? folderSync,
+    this.junkFolder = '',
   })  : id = id ?? _newId(),
         folderSync = folderSync ?? {};
 
@@ -144,6 +148,7 @@ class EchoAccount {
         'signature': signature,
         'color': color,
         'folderSync': {for (final e in folderSync.entries) e.key: e.value.toJson()},
+        if (junkFolder.isNotEmpty) 'junkFolder': junkFolder,
       };
 
   factory EchoAccount.fromJson(Map<String, dynamic> j) => EchoAccount(
@@ -164,6 +169,7 @@ class EchoAccount {
           for (final e in ((j['folderSync'] as Map?) ?? const {}).entries)
             e.key as String: FolderSync.fromJson(Map<String, dynamic>.from(e.value as Map)),
         },
+        junkFolder: j['junkFolder'] as String? ?? '',
       );
 
   EchoAccount copy() => EchoAccount.fromJson(toJson());
@@ -217,20 +223,33 @@ class FolderInfo {
   final String role; // inbox, sent, drafts, trash, junk, archive, other
   final bool selectable;
   final int depth;
+  /// Rolle stammt aus der Sonderordner-Kennung des Servers (\Junk usw.), nicht aus dem Namen.
+  final bool special;
   const FolderInfo({
     required this.path,
     required this.name,
     required this.role,
     required this.selectable,
     required this.depth,
+    this.special = false,
   });
+
+  FolderInfo withRole(String r, {bool? special}) => FolderInfo(
+        path: path,
+        name: name,
+        role: r,
+        selectable: selectable,
+        depth: depth,
+        special: special ?? this.special,
+      );
 
   String get displayName => switch (role) {
         'inbox' => 'Posteingang',
         'sent' => 'Gesendet',
         'drafts' => 'Entwürfe',
         'trash' => 'Papierkorb',
-        'junk' => 'Spam',
+        // „Spam“ nur, wenn der Ordner auch so heißt – sonst echten Namen zeigen (WEB.DE: „Unerwünscht“)
+        'junk' => const {'spam', 'junk', 'inbox.spam', 'inbox.junk'}.contains(name.toLowerCase()) ? 'Spam' : name,
         'archive' => 'Archiv',
         _ => name,
       };

@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 /// Version dieser App – muss zu `version:` in pubspec.yaml passen (Test prüft das).
-const appVersion = '6.2.1';
+const appVersion = '6.2.2';
 
 /// Build-Nummer (GitHub-Lauf), wird beim Bauen per `--dart-define=ECHOWP_BUILD=…` gesetzt.
 const appBuild = int.fromEnvironment('ECHOWP_BUILD');
