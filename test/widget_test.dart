@@ -2344,75 +2344,7 @@ void main() {
       await _drain(tester);
     });
   });
-}
 
-/// Nachgebildeter, langsamer Server.
-class _SlowConn extends AccountConnection {
-  final Duration delay;
-  final List<MailItem> result;
-  _SlowConn(super.account, this.delay, this.result);
-
-  @override
-  Future<List<MailItem>> fetchUnseen(String path, {int limit = 150}) =>
-      Future.delayed(delay, () => path == 'INBOX' ? result : <MailItem>[]);
-
-  @override
-  Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
-}
-
-/// Nachgebildeter Server, der eine feste Rohmail liefert.
-class _DetailConn extends AccountConnection {
-  final String raw;
-  _DetailConn(super.account, this.raw);
-
-  @override
-  Future<MailDetail> fetchDetail(MailItem item, {bool markSeen = true}) async =>
-      MailDetail.fromMime(item, em.MimeMessage.parseFromText(raw));
-}
-
-/// Nachgebildetes Offline-Wörterbuch: meldet die angegebenen Wörter als falsch.
-class _FakeSpeller implements OfflineSpeller {
-  final Map<String, List<String>> wrong;
-  _FakeSpeller(this.wrong);
-
-  @override
-  Future<List<SpellIssue>?> check(String lang, String text) async => [
-        for (final e in wrong.entries)
-          for (final m in RegExp(RegExp.escape(e.key)).allMatches(text)) SpellIssue(m.start, m.end, e.key, e.value),
-      ]..sort((a, b) => a.start.compareTo(b.start));
-}
-
-/// Server mit fester Mail, merkt sich Verschiebungen und angelegte Ordner.
-class _SpamConn extends _DetailConn {
-  final moves = <String>[];
-  final created = <String>[];
-  _SpamConn(super.account, super.raw);
-
-  @override
-  Future<void> move(String path, List<int> uids, String target) async => moves.add('$path:${uids.join(',')}->$target');
-
-  @override
-  Future<void> createFolder(String path) async => created.add(path);
-
-  @override
-  Future<List<FolderInfo>> listFolders() async => [
-        ..._folders,
-        for (final c in created) FolderInfo(path: c, name: c, role: 'junk', selectable: true, depth: 0),
-      ];
-
-  @override
-  Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
-}
-
-/// KI-Attrappe: hält jede Mail für harmlos (wie nach erfolgreicher Prompt-Injektion).
-class _FakeAi extends AiService {
-  String prompt = '';
-
-  @override
-  Future<(int, List<String>, String)> securityCheck(String key, String model, String prompt) async {
-    this.prompt = prompt;
-    return (5, ['Sieht harmlos aus'], 'Unbedenklich.');
-  }
   group('Updates', () {
     Map<String, dynamic> rel(String tag, {List<Map<String, dynamic>>? assets}) => {
           'tag_name': tag,
@@ -2583,4 +2515,73 @@ class _FakeAi extends AiService {
       await _drain(tester);
     });
   });
+}
+
+/// Nachgebildeter, langsamer Server.
+class _SlowConn extends AccountConnection {
+  final Duration delay;
+  final List<MailItem> result;
+  _SlowConn(super.account, this.delay, this.result);
+
+  @override
+  Future<List<MailItem>> fetchUnseen(String path, {int limit = 150}) =>
+      Future.delayed(delay, () => path == 'INBOX' ? result : <MailItem>[]);
+
+  @override
+  Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
+}
+
+/// Nachgebildeter Server, der eine feste Rohmail liefert.
+class _DetailConn extends AccountConnection {
+  final String raw;
+  _DetailConn(super.account, this.raw);
+
+  @override
+  Future<MailDetail> fetchDetail(MailItem item, {bool markSeen = true}) async =>
+      MailDetail.fromMime(item, em.MimeMessage.parseFromText(raw));
+}
+
+/// Nachgebildetes Offline-Wörterbuch: meldet die angegebenen Wörter als falsch.
+class _FakeSpeller implements OfflineSpeller {
+  final Map<String, List<String>> wrong;
+  _FakeSpeller(this.wrong);
+
+  @override
+  Future<List<SpellIssue>?> check(String lang, String text) async => [
+        for (final e in wrong.entries)
+          for (final m in RegExp(RegExp.escape(e.key)).allMatches(text)) SpellIssue(m.start, m.end, e.key, e.value),
+      ]..sort((a, b) => a.start.compareTo(b.start));
+}
+
+/// Server mit fester Mail, merkt sich Verschiebungen und angelegte Ordner.
+class _SpamConn extends _DetailConn {
+  final moves = <String>[];
+  final created = <String>[];
+  _SpamConn(super.account, super.raw);
+
+  @override
+  Future<void> move(String path, List<int> uids, String target) async => moves.add('$path:${uids.join(',')}->$target');
+
+  @override
+  Future<void> createFolder(String path) async => created.add(path);
+
+  @override
+  Future<List<FolderInfo>> listFolders() async => [
+        ..._folders,
+        for (final c in created) FolderInfo(path: c, name: c, role: 'junk', selectable: true, depth: 0),
+      ];
+
+  @override
+  Future<Map<String, int>> unreadCounts(List<String> paths) async => {};
+}
+
+/// KI-Attrappe: hält jede Mail für harmlos (wie nach erfolgreicher Prompt-Injektion).
+class _FakeAi extends AiService {
+  String prompt = '';
+
+  @override
+  Future<(int, List<String>, String)> securityCheck(String key, String model, String prompt) async {
+    this.prompt = prompt;
+    return (5, ['Sieht harmlos aus'], 'Unbedenklich.');
+  }
 }
