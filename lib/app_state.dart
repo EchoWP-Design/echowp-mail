@@ -722,7 +722,6 @@ class AppState extends ChangeNotifier {
 
   /// „Neu“-Zähler mit dem Server abgleichen: Mails, die inzwischen anderswo gelesen,
   /// verschoben (z. B. Spamfilter des Anbieters) oder gelöscht wurden, zählen nicht mehr.
-  @visibleForTesting
   Future<void> reconcileNew(String accountId, Map<String, Set<int>> snapshot) async {
     if (snapshot.isEmpty) return;
     final known = folders[accountId]?.map((f) => f.path).toSet();
