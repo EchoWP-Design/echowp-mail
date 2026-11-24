@@ -1,7 +1,7 @@
 name: echowp_mail
 description: EchoWP-Mail – E-Mail-Client mit KI-Funktionen für Android und Windows.
 publish_to: 'none'
-version: 6.2.3+27
+version: 6.2.4+28
 
 environment:
   sdk: '>=3.4.0 <4.0.0'

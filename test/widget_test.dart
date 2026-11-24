@@ -370,6 +370,59 @@ void main() {
       expect(s.newFor('a1', 'INBOX'), 0);
     });
 
+    test('Abgleich: anderswo gelesene/verschobene Mails zählen nicht mehr als neu', () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      await NewMailStore.add('a1', 'INBOX', [10, 11, 12]);
+      final s = AppState()..accounts = [_acc()];
+      await s.reloadNew();
+      expect(s.newForAccount('a1'), 3);
+      // Server meldet nur noch 12 ungelesen (10 gelesen, 11 in „Unerwünscht“ verschoben)
+      expect(s.pruneNew('a1', 'INBOX', [12]), isTrue);
+      expect(s.newFor('a1', 'INBOX'), 1);
+      expect((await NewMailStore.loadAll())['a1']!['INBOX'], {12});
+      // Nichts geändert → kein Umbau
+      expect(s.pruneNew('a1', 'INBOX', [12]), isFalse);
+    });
+
+    test('Abgleich prüft nur den Stand von vorher (neu Eingetroffenes bleibt)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      s.newMail['a1'] = {
+        'INBOX': {1, 2, 3},
+      };
+      // Geprüft wurden nur 1 und 2; 3 kam erst während der Abfrage
+      s.pruneNew('a1', 'INBOX', const [], checked: {1, 2});
+      expect(s.newMail['a1']!['INBOX'], {3});
+      s.pruneNew('a1', 'INBOX', const []);
+      expect(s.newMail['a1']!.containsKey('INBOX'), isFalse);
+      expect(s.newForAccount('a1'), 0);
+    });
+
+    test('Abgleich ohne Server: Ordner weg oder 0 ungelesen → Zähler leer', () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders;
+      s.unread['a1'] = {'INBOX': 0};
+      s.newMail['a1'] = {
+        'INBOX': {7, 8},
+        'Geloescht': {9},
+      };
+      await s.reconcileNew('a1', {
+        'INBOX': {7, 8},
+        'Geloescht': {9},
+      });
+      expect(s.newForAccount('a1'), 0);
+    });
+
+    test('UID-Liste für IMAP wird zu Bereichen zusammengefasst', () {
+      expect(imapUidSet([3, 1, 2, 7, 9, 10, 10]), '1:3,7,9:10');
+      expect(imapUidSet([5]), '5');
+      expect(imapUidSet(const []), '');
+    });
+
     test('gemeinsamer Speicher (App, Push-Dienst, Hintergrundabruf)', () async {
       SharedPreferences.setMockInitialValues({});
       await NewMailStore.add('a1', 'INBOX', [3, 4]);

@@ -11,6 +11,22 @@ import 'pgp.dart';
 /// Bleibt eine Mail in „Aktuell“? Ungelesen oder mit Stern.
 bool keepInUnified(MailItem i) => !i.seen || i.flagged;
 
+/// IMAP-Nummernliste, aufeinanderfolgende UIDs als Bereich: [1,2,3,7,9,10] → „1:3,7,9:10“.
+String imapUidSet(Iterable<int> uids) {
+  final l = uids.toSet().toList()..sort();
+  final out = <String>[];
+  var i = 0;
+  while (i < l.length) {
+    var j = i;
+    while (j + 1 < l.length && l[j + 1] == l[j] + 1) {
+      j++;
+    }
+    out.add(i == j ? '${l[i]}' : '${l[i]}:${l[j]}');
+    i = j + 1;
+  }
+  return out.join(',');
+}
+
 class _Lock {
   Future<void> _last = Future.value();
   Future<T> run<T>(Future<T> Function() fn) {
@@ -377,6 +393,16 @@ class AccountConnection {
           } catch (_) {}
         }
         return out;
+      });
+
+  /// Welche der [uids] liegen noch ungelesen in [path]? (Abgleich für den „neu“-Zähler:
+  /// anderswo gelesene, verschobene oder gelöschte Mails fallen heraus.)
+  Future<Set<int>> unseenAmong(String path, Iterable<int> uids) => _run((c) async {
+        final list = uids.toSet().toList()..sort();
+        if (list.isEmpty) return <int>{};
+        await _select(c, path, force: true);
+        final res = await c.uidSearchMessages(searchCriteria: 'UNSEEN UID ${imapUidSet(list)}');
+        return (res.matchingSequence?.toList() ?? const <int>[]).toSet();
       });
 
   Future<PageResult> fetchList(String path, {int? beforeSeq, int count = 40}) => _run((c) async {

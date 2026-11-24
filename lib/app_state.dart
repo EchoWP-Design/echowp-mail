@@ -708,11 +708,42 @@ class AppState extends ChangeNotifier {
         .map((f) => f.path)
         .toList();
     if (!paths.contains('INBOX')) paths.insert(0, 'INBOX');
+    // Stand vor der Abfrage festhalten: was danach eintrifft, wird nicht mitgeprüft
+    final snapshot = {
+      for (final e in (newMail[accountId] ?? const <String, Set<int>>{}).entries) e.key: Set<int>.of(e.value),
+    };
     try {
       final counts = await mail.conn(accountId).unreadCounts(paths);
       (unread[accountId] ??= {}).addAll(counts);
       notifyListeners();
     } catch (_) {}
+    await reconcileNew(accountId, snapshot);
+  }
+
+  /// „Neu“-Zähler mit dem Server abgleichen: Mails, die inzwischen anderswo gelesen,
+  /// verschoben (z. B. Spamfilter des Anbieters) oder gelöscht wurden, zählen nicht mehr.
+  @visibleForTesting
+  Future<void> reconcileNew(String accountId, Map<String, Set<int>> snapshot) async {
+    if (snapshot.isEmpty) return;
+    final known = folders[accountId]?.map((f) => f.path).toSet();
+    var changed = false;
+    for (final e in snapshot.entries) {
+      final path = e.key;
+      Iterable<int> keep;
+      if (known != null && !known.contains(path)) {
+        keep = const <int>[]; // Ordner gibt es nicht mehr
+      } else if (unread[accountId]?[path] == 0) {
+        keep = const <int>[]; // Server meldet gerade keine ungelesene Mail
+      } else {
+        try {
+          keep = await mail.conn(accountId).unseenAmong(path, e.value);
+        } catch (_) {
+          continue; // Server nicht erreichbar → Stand behalten
+        }
+      }
+      changed |= pruneNew(accountId, path, keep, checked: e.value);
+    }
+    if (changed) notifyListeners();
   }
 
   void _scheduleCounts(String accountId, {Duration delay = const Duration(seconds: 2)}) {
@@ -766,6 +797,20 @@ class AppState extends ChangeNotifier {
       if (set.isEmpty) newMail[f.accountId]!.remove(f.folderPath);
       NewMailStore.remove(f.accountId, f.folderPath, uids).catchError((_) {});
     }
+  }
+
+  /// Entfernt aus den „neu“-Mails eines Ordners alle geprüften UIDs ([checked], sonst alle),
+  /// die nicht in [keep] stehen. Gibt zurück, ob sich etwas geändert hat.
+  bool pruneNew(String accountId, String path, Iterable<int> keep, {Iterable<int>? checked}) {
+    final set = newMail[accountId]?[path];
+    if (set == null) return false;
+    final keepSet = keep.toSet();
+    final gone = (checked ?? set).where((u) => set.contains(u) && !keepSet.contains(u)).toList();
+    if (gone.isEmpty) return false;
+    set.removeAll(gone);
+    if (set.isEmpty) newMail[accountId]!.remove(path);
+    NewMailStore.remove(accountId, path, gone).catchError((_) {});
+    return true;
   }
 
   void _addNew(List<MailItem> list) {
