@@ -380,6 +380,7 @@ void main() {
       // Server meldet nur noch 12 ungelesen (10 gelesen, 11 in „Unerwünscht“ verschoben)
       expect(s.pruneNew('a1', 'INBOX', [12]), isTrue);
       expect(s.newFor('a1', 'INBOX'), 1);
+      await pumpEventQueue(); // Speichern läuft im Hintergrund
       expect((await NewMailStore.loadAll())['a1']!['INBOX'], {12});
       // Nichts geändert → kein Umbau
       expect(s.pruneNew('a1', 'INBOX', [12]), isFalse);
