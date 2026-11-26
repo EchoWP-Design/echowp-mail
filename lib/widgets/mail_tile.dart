@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import '../tags.dart';
 import 'common.dart';
 
 class MailTile extends StatelessWidget {
@@ -14,6 +15,8 @@ class MailTile extends StatelessWidget {
   final VoidCallback onLongPress;
   final VoidCallback onAvatarTap;
   final VoidCallback? onStarTap;
+  /// Tags der Mail (aus IMAP-Keywords), unter dem Betreff angezeigt.
+  final List<TagInfo> tags;
 
   const MailTile({
     super.key,
@@ -26,6 +29,7 @@ class MailTile extends StatelessWidget {
     required this.onLongPress,
     required this.onAvatarTap,
     this.onStarTap,
+    this.tags = const [],
   });
 
   @override
@@ -119,6 +123,11 @@ class MailTile extends StatelessWidget {
                         Icon(Icons.attach_file, size: 16, color: cs.onSurfaceVariant),
                       StarButton(starred: item.flagged, onTap: onStarTap),
                     ]),
+                    if (tags.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Wrap(spacing: 4, runSpacing: 4, children: [for (final t in tags) TagChip(t)]),
+                      ),
                   ],
                 ),
               ),
@@ -126,6 +135,26 @@ class MailTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Kleines farbiges Schild mit dem Tag-Namen.
+class TagChip extends StatelessWidget {
+  final TagInfo tag;
+  final bool dense;
+  const TagChip(this.tag, {super.key, this.dense = true});
+
+  @override
+  Widget build(BuildContext context) {
+    // Schriftfarbe nach Helligkeit des Hintergrunds (Gelb → schwarz, sonst weiß)
+    final fg = tag.color.computeLuminance() > 0.5 ? const Color(0xFF0A0A0A) : Colors.white;
+    return Container(
+      key: ValueKey('tag-${tag.keyword}'),
+      padding: EdgeInsets.symmetric(horizontal: dense ? 6 : 8, vertical: dense ? 1 : 3),
+      decoration: BoxDecoration(color: tag.color, borderRadius: BorderRadius.circular(4)),
+      child: Text(tag.label,
+          style: TextStyle(color: fg, fontSize: dense ? 11 : 13, fontWeight: FontWeight.w600, height: 1.3)),
     );
   }
 }

@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import 'tags.dart';
+
 enum SecurityType { ssl, starttls, none }
 
 SecurityType securityFromName(String? n) =>
@@ -190,6 +192,9 @@ class MailItem {
   /// OpenPGP laut Mailstruktur (PGP/MIME): null, 'encrypted' oder 'signed'.
   final String? pgp;
 
+  /// EchoWP-Tags als IMAP-Keywords (klein geschrieben, z. B. `$echowp_rechnung`).
+  final Set<String> keywords;
+
   MailItem({
     required this.accountId,
     required this.folderPath,
@@ -202,7 +207,8 @@ class MailItem {
     required this.flagged,
     required this.hasAttachments,
     this.pgp,
-  });
+    Set<String>? keywords,
+  }) : keywords = keywords ?? {};
 
   String get key => '$accountId|$folderPath|$uid';
 
@@ -339,6 +345,8 @@ class AppSettings {
   bool pgpAutoEncrypt;
   bool pgpSignDefault;
   bool autoUpdateCheck;
+  /// Regeln für Tags (IMAP-Keywords, bei Gmail zusätzlich Labels).
+  List<TagRule> tagRules;
 
   AppSettings({
     this.themeMode = ThemeMode.system,
@@ -354,7 +362,8 @@ class AppSettings {
     this.pgpAutoEncrypt = true,
     this.pgpSignDefault = false,
     this.autoUpdateCheck = true,
-  });
+    List<TagRule>? tagRules,
+  }) : tagRules = tagRules ?? [];
 
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
@@ -369,6 +378,7 @@ class AppSettings {
         'pgpAutoEncrypt': pgpAutoEncrypt,
         'pgpSignDefault': pgpSignDefault,
         'autoUpdateCheck': autoUpdateCheck,
+        'tagRules': tagRules.map((r) => r.toJson()).toList(),
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
@@ -384,5 +394,9 @@ class AppSettings {
         pgpAutoEncrypt: j['pgpAutoEncrypt'] as bool? ?? true,
         pgpSignDefault: j['pgpSignDefault'] as bool? ?? false,
         autoUpdateCheck: j['autoUpdateCheck'] as bool? ?? true,
+        tagRules: [
+          for (final r in (j['tagRules'] as List? ?? const []))
+            TagRule.fromJson(Map<String, dynamic>.from(r as Map)),
+        ],
       );
 }

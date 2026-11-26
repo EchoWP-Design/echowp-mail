@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_state.dart';
 import '../file_drop.dart';
 import '../models.dart';
+import '../tags.dart';
 import '../widgets/common.dart';
 import '../widgets/folder_jump.dart';
 import '../widgets/folder_pane.dart';
@@ -694,6 +695,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onLongPress: () => s.toggleSelect(item),
         onAvatarTap: () => s.toggleSelect(item),
         onStarTap: () => s.setFlagged([item], !item.flagged),
+        tags: item.keywords.isEmpty ? const [] : tagsOf(item, s.tagCatalogMap),
       ),
     );
   }

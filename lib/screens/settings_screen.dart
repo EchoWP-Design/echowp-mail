@@ -15,6 +15,7 @@ import '../widgets/shortcuts_help.dart';
 import 'account_edit_screen.dart';
 import 'drive_sync_screen.dart';
 import 'pgp_screen.dart';
+import 'tag_rules_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -131,6 +132,18 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Benachrichtigungen'),
           value: st.notifications,
           onChanged: (v) => s.updateSettings((x) => x.notifications = v),
+        ),
+        header('Tags'),
+        ListTile(
+          key: const ValueKey('settings-tags'),
+          leading: const Icon(Icons.sell_outlined),
+          title: const Text('Tags & Regeln'),
+          subtitle: Text(st.tagRules.isEmpty
+              ? 'Neue Mails automatisch mit Tags versehen (auf dem Server, bei Gmail als Label)'
+              : '${st.tagRules.length} ${st.tagRules.length == 1 ? 'Regel' : 'Regeln'} · '
+                  '${st.tagRules.map((r) => r.tag).toSet().length} Tags'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TagRulesScreen())),
         ),
         header('Verschlüsselung'),
         ListTile(

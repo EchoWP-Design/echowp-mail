@@ -10,6 +10,7 @@ import 'models.dart';
 import 'new_mail.dart';
 import 'notifications.dart';
 import 'storage.dart';
+import 'tags.dart';
 
 const _taskName = 'echowp-mailcheck';
 
@@ -74,11 +75,40 @@ class MailCheck {
     if (!alreadyHandled && news.isNotEmpty) {
       // Für den „neu“-Zähler hinter Konto und Ordner vormerken
       await NewMailStore.add(a.id, path, news.map((n) => n.uid));
+      // Tag-Regeln: Keyword (Gmail zusätzlich Label) auf dem Server setzen.
+      // Ein Fehler hier darf die Benachrichtigung nicht verhindern.
+      try {
+        await applyTags(conn, a, path, news, settings.tagRules);
+      } catch (_) {}
       if (settings.notifications && a.syncOf(path).notify) {
         await Notifier.notifyNew(a, path, news);
       }
     }
     return news;
+  }
+
+  /// Setzt die Tags laut [rules] auf [items] (Server und lokal). Liefert die Zahl der
+  /// gesetzten Tags (je Mail und Tag einer).
+  static Future<int> applyTags(
+    AccountConnection conn,
+    EchoAccount a,
+    String path,
+    List<MailItem> items,
+    List<TagRule> rules,
+  ) async {
+    var n = 0;
+    for (final e in tagPlan(items, a.id, rules).entries) {
+      final (label, uids) = e.value;
+      final stored = await conn.addTag(path, uids, e.key, gmailLabel: a.isGmail ? gmailLabelFor(label) : null);
+      if (stored) {
+        for (final m in items) {
+          if (uids.contains(m.uid)) m.keywords.add(e.key);
+        }
+      }
+      // Ohne Keyword-Unterstützung zählt bei Gmail das Label, sonst ist nichts passiert
+      if (stored || a.isGmail) n += uids.length;
+    }
+    return n;
   }
 
   /// Prüft alle automatisch synchronisierten Ordner aller Konten einmal.

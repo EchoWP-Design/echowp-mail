@@ -6,6 +6,7 @@ import 'package:enough_mail/enough_mail.dart' as em;
 
 import 'models.dart';
 import 'pgp.dart';
+import 'tags.dart';
 
 /// Serialisiert Zugriffe auf eine IMAP-Verbindung (IMAP kennt nur einen ausgewählten Ordner).
 /// Bleibt eine Mail in „Aktuell“? Ungelesen oder mit Stern.
@@ -271,6 +272,10 @@ MailItem? mimeToItem(em.MimeMessage m, String accountId, String path) {
     flagged: m.isFlagged,
     hasAttachments: att,
     pgp: pgp,
+    keywords: {
+      for (final f in m.flags ?? const <String>[])
+        if (isTagKeyword(f)) f.toLowerCase(),
+    },
   );
 }
 
@@ -475,6 +480,46 @@ class AccountConnection {
         await _select(c, path);
         await c.uidStore(em.MessageSequence.fromIds(uids, isUid: true), [flag],
             action: add ? em.StoreAction.add : em.StoreAction.remove);
+      });
+
+  /// Gmail-Labels, die in dieser Verbindung schon angelegt bzw. vorhanden sind.
+  final Set<String> _labels = {};
+
+  /// Setzt den Tag [keyword] auf [uids] in [path]. Bei Gmail kommt zusätzlich das Label
+  /// [gmailLabel] dazu (COPY in den Label-Ordner fügt in Gmail nur das Label hinzu).
+  /// Liefert false, wenn der Server keine eigenen Keywords dauerhaft speichert.
+  Future<bool> addTag(String path, List<int> uids, String keyword, {String? gmailLabel}) => _run((c) async {
+        if (uids.isEmpty) return true;
+        final box = await _select(c, path, force: true);
+        final seq = em.MessageSequence.fromIds(uids, isUid: true);
+        final stored = keywordAllowed(box.permanentMessageFlags, keyword);
+        if (stored) {
+          await c.uidStore(seq, [keyword], action: em.StoreAction.add, silent: true);
+        }
+        if (gmailLabel != null && gmailLabel != path) {
+          if (!_labels.contains(gmailLabel)) {
+            if (_boxes.isEmpty) {
+              for (final b in await c.listMailboxes(recursive: true)) {
+                _boxes[b.path] = b;
+              }
+            }
+            if (!_boxes.containsKey(gmailLabel)) {
+              final created = await c.createMailbox(gmailLabel);
+              _boxes[created.path] = created;
+            }
+            _labels.add(gmailLabel);
+          }
+          await c.uidCopy(seq, targetMailboxPath: gmailLabel);
+        }
+        return stored;
+      });
+
+  /// Entfernt den Tag [keyword] (Gmail-Labels bleiben – die entfernt man in Gmail selbst).
+  Future<void> removeTag(String path, List<int> uids, String keyword) => _run((c) async {
+        if (uids.isEmpty) return;
+        await _select(c, path, force: true);
+        await c.uidStore(em.MessageSequence.fromIds(uids, isUid: true), [keyword],
+            action: em.StoreAction.remove, silent: true);
       });
 
   Future<void> move(String path, List<int> uids, String target) => _run((c) async {

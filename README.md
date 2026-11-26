@@ -4,7 +4,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 6.2.4** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 6.3.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -90,6 +90,7 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
+| **6.3.0** | Tags: Regeln (Absender/Betreff enthält …) versehen neue Mails beim Eintreffen automatisch mit Tags – als IMAP-Schlagwort auf dem Server (auf allen Geräten sichtbar), bei Gmail zusätzlich als Label; Tags in Liste und Mailansicht, von Hand setzbar; Einstellungen → Tags & Regeln. Update-Hinweis als Laufband oben (Schwarz auf Gelb) |
 | **6.2.4** | „x neu“ in der Kontenübersicht stimmt wieder: Mails, die anderswo gelesen, vom Anbieter verschoben oder gelöscht wurden, werden beim Abgleich mit dem Server herausgenommen |
 | **6.2.3** | Ordner mit Umlauten (WEB.DE „Unerwünscht“, „Entwürfe“ …) lassen sich öffnen – Fehler „unsupported folder name“ behoben (auch beim Push) |
 | **6.2.2** | Spam-Ordner wird auch unter anderem Namen erkannt (WEB.DE „Unerwünscht“, GMX „Spamverdacht“ u. a.); ohne Treffer Auswahl statt stillem Anlegen; Ordner-Menü „Als Spam-Ordner festlegen“ |

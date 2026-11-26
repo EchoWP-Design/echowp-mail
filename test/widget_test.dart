@@ -24,6 +24,8 @@ import 'package:echowp_mail/screens/settings_screen.dart';
 import 'package:echowp_mail/updater.dart';
 import 'package:echowp_mail/spell.dart';
 import 'package:echowp_mail/theme.dart';
+import 'package:echowp_mail/screens/tag_rules_screen.dart';
+import 'package:echowp_mail/tags.dart';
 import 'package:echowp_mail/widgets/address_field.dart';
 import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
@@ -2567,6 +2569,144 @@ void main() {
     });
   });
 
+  group('Tags', () {
+    test('Schlagwort aus dem Tag-Namen (IMAP-Atom, ohne Umlaute)', () {
+      expect(tagKeyword('Rechnung'), r'$echowp_rechnung');
+      expect(tagKeyword('Bücher & Spiele'), r'$echowp_buecher_spiele');
+      expect(tagKeyword('  Groß(Kunde) "A" '), r'$echowp_gross_kunde_a');
+      expect(tagKeyword('!!!'), r'$echowp_tag');
+      expect(isTagKeyword(r'$EchoWP_Rechnung'), isTrue);
+      expect(isTagKeyword(r'$NotJunk'), isFalse);
+      expect(labelFromKeyword(r'$echowp_dienst_plan'), 'Dienst plan');
+      expect(gmailLabelFor('Arbeit/Dienst'), 'Arbeit-Dienst');
+    });
+
+    test('Regeln: Treffer, Konto, ausgeschaltet, schon getaggt', () {
+      final m1 = _mail(1)..keywords.add(r'$echowp_rechnung');
+      final m2 = MailItem(
+        accountId: 'a1',
+        folderPath: 'INBOX',
+        uid: 2,
+        subject: 'Ihre Rechnung November',
+        fromName: 'Telekom',
+        fromEmail: 'rechnung@telekom.de',
+        date: DateTime(2026, 11, 20),
+        seen: false,
+        flagged: false,
+        hasAttachments: false,
+      );
+      final rules = [
+        TagRule(tag: 'Rechnung', field: TagField.any, value: 'telekom.de, Rechnung'),
+        TagRule(tag: 'Absender 1', field: TagField.from, value: 'a1@EXAMPLE.de'),
+        TagRule(tag: 'Aus', value: 'telekom', enabled: false),
+        TagRule(tag: 'Anderes Konto', value: 'telekom', accountId: 'a2'),
+        TagRule(tag: 'Betreff', field: TagField.subject, value: 'telekom'),
+      ];
+      final plan = tagPlan([m1, m2], 'a1', rules);
+      expect(plan.keys, unorderedEquals([r'$echowp_rechnung', r'$echowp_absender_1']));
+      expect(plan[r'$echowp_rechnung']!.$2, [2]); // m1 trägt den Tag schon
+      expect(plan[r'$echowp_absender_1']!.$2, [1]);
+      expect(plan[r'$echowp_rechnung']!.$1, 'Rechnung');
+    });
+
+    test('Keywords auf dem Server erlaubt (PERMANENTFLAGS)', () {
+      expect(keywordAllowed(const [], r'$echowp_x'), isTrue);
+      expect(keywordAllowed(const [r'\Seen', r'\*'], r'$echowp_x'), isTrue);
+      expect(keywordAllowed(const [r'\Seen', r'$EchoWP_X'], r'$echowp_x'), isTrue);
+      expect(keywordAllowed(const [r'\Seen', r'\Flagged'], r'$echowp_x'), isFalse);
+    });
+
+    test('Regeln reisen in den Einstellungen mit (Drive-Abgleich)', () {
+      final st = AppSettings(tagRules: [
+        TagRule(id: 'r1', tag: 'Dienst', color: 0xFFE53935, accountId: 'a1', field: TagField.subject, value: 'Dienstplan'),
+        TagRule(id: 'r2', tag: 'Aus', enabled: false, value: 'x'),
+      ]);
+      final back = AppSettings.fromJson(jsonDecode(jsonEncode(st.toJson())) as Map<String, dynamic>);
+      expect(back.tagRules.length, 2);
+      expect(back.tagRules[0].tag, 'Dienst');
+      expect(back.tagRules[0].accountId, 'a1');
+      expect(back.tagRules[0].field, TagField.subject);
+      expect(back.tagRules[0].color, 0xFFE53935);
+      expect(back.tagRules[1].enabled, isFalse);
+      expect(AppSettings.fromJson({}).tagRules, isEmpty);
+    });
+
+    test('Mailliste liest EchoWP-Keywords aus FLAGS', () {
+      final m = em.MimeMessage.parseFromText('From: a@b.de\r\nSubject: x\r\n\r\nHallo')
+        ..uid = 7
+        ..flags = [r'\Seen', r'$EchoWP_Rechnung', r'$NotJunk', 'NonJunk'];
+      final item = mimeToItem(m, 'a1', 'INBOX')!;
+      expect(item.keywords, {r'$echowp_rechnung'});
+    });
+
+    test('Neue Mails: Tag wird gesetzt, Gmail bekommt zusätzlich das Label', () async {
+      final rules = [TagRule(tag: 'Absender/1', field: TagField.from, value: 'a1@')];
+      final conn = _TagConn(_acc());
+      final items = [_mail(1), _mail(2)];
+      expect(await MailCheck.applyTags(conn, _acc(), 'INBOX', items, rules), 1);
+      expect(conn.added, [r'INBOX:1:$echowp_absender_1:null']);
+      expect(items[0].keywords, {r'$echowp_absender_1'});
+      expect(items[1].keywords, isEmpty);
+      // zweiter Durchlauf: schon getaggt → nichts
+      expect(await MailCheck.applyTags(conn, _acc(), 'INBOX', items, rules), 0);
+
+      final gmail = _acc()..imapHost = 'imap.gmail.com';
+      final g = _TagConn(gmail)..keywordsOk = false;
+      final gi = [_mail(1)];
+      expect(await MailCheck.applyTags(g, gmail, 'INBOX', gi, rules), 1);
+      expect(g.added, [r'INBOX:1:$echowp_absender_1:Absender-1']);
+      expect(gi[0].keywords, isEmpty); // Server speichert keine Keywords → nur Label
+    });
+
+    testWidgets('Tag erscheint in der Liste mit Name aus der Regel', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [
+          _mail(1)..keywords.addAll({r'$echowp_rechnung', r'$echowp_fremd'}),
+          _mail(2),
+        ];
+      s.settings.tagRules = [TagRule(tag: 'Rechnung', color: 0xFFE53935, value: 'x')];
+      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pump();
+      expect(find.byKey(const ValueKey(r'tag-$echowp_rechnung')), findsOneWidget);
+      expect(find.text('Rechnung'), findsOneWidget);
+      expect(find.text('Fremd'), findsOneWidget); // unbekanntes Keyword mit abgeleitetem Namen
+      await _drain(tester);
+    });
+
+    testWidgets('Regel anlegen über Einstellungen → Tags & Regeln', (tester) async {
+      tester.view.physicalSize = const Size(420, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..accounts = [_acc()];
+      await tester.pumpWidget(_wrap(s, const TagRulesScreen()));
+      await tester.pump();
+      expect(find.text('Noch keine Regeln'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tag-rule-add')));
+      await tester.pumpAndSettle();
+      // Ohne Tag/Begriff nicht speicherbar
+      expect(tester.widget<FilledButton>(find.byKey(const ValueKey('tag-rule-save'))).onPressed, isNull);
+      await tester.enterText(find.byKey(const ValueKey('tag-rule-tag')), 'Rechnung');
+      await tester.enterText(find.byKey(const ValueKey('tag-rule-value')), '@telekom.de');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('tag-rule-save')));
+      await tester.pumpAndSettle();
+      expect(s.settings.tagRules.length, 1);
+      expect(s.settings.tagRules.first.keyword, r'$echowp_rechnung');
+      expect(s.settings.tagRules.first.value, '@telekom.de');
+      expect(find.text('Absender enthält: @telekom.de'), findsOneWidget);
+      expect(find.byKey(const ValueKey('tag-rules-apply')), findsOneWidget);
+      await _drain(tester);
+    });
+  });
+
   group('Updates', () {
     Map<String, dynamic> rel(String tag, {List<Map<String, dynamic>>? assets}) => {
           'tag_name': tag,
@@ -2848,5 +2988,18 @@ class _FakeAi extends AiService {
   Future<(int, List<String>, String)> securityCheck(String key, String model, String prompt) async {
     this.prompt = prompt;
     return (5, ['Sieht harmlos aus'], 'Unbedenklich.');
+  }
+}
+
+/// Verbindungs-Attrappe für Tags: merkt sich gesetzte Tags.
+class _TagConn extends AccountConnection {
+  final added = <String>[];
+  bool keywordsOk = true;
+  _TagConn(super.account);
+
+  @override
+  Future<bool> addTag(String path, List<int> uids, String keyword, {String? gmailLabel}) async {
+    added.add('$path:${uids.join(',')}:$keyword:$gmailLabel');
+    return keywordsOk;
   }
 }

@@ -12,6 +12,7 @@ import '../mail_service.dart';
 import '../models.dart';
 import '../pgp.dart';
 import '../security_check.dart';
+import '../tags.dart';
 import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
 import '../widgets/spam_folder_dialog.dart';
@@ -289,6 +290,41 @@ class _MessageViewState extends State<MessageView> {
     ]);
   }
 
+  /// Tags dieser Mail an- und abwählen (bekannte Tags aus den Regeln plus vorhandene).
+  Future<void> _editTags(AppState s, MailItem item) async {
+    final catalog = s.tagCatalogMap;
+    final all = {...catalog, for (final t in tagsOf(item, catalog)) t.keyword: t}.values.toList()
+      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('Tags'),
+          scrollable: true,
+          content: all.isEmpty
+              ? const Text('Noch keine Tags angelegt – Einstellungen → Tags & Regeln.')
+              : Column(mainAxisSize: MainAxisSize.min, children: [
+                  for (final t in all)
+                    CheckboxListTile(
+                      key: ValueKey('tag-toggle-${t.keyword}'),
+                      value: item.keywords.contains(t.keyword),
+                      title: Align(alignment: Alignment.centerLeft, child: TagChip(t, dense: false)),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (v) async {
+                        final f = s.setTag(item, t.keyword, t.label, v ?? false);
+                        setDialog(() {});
+                        await f;
+                        if (ctx.mounted) setDialog(() {});
+                      },
+                    ),
+                ]),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fertig'))],
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   Widget _toolbar(AppState s, MailItem item) {
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLow,
@@ -345,11 +381,14 @@ class _MessageViewState extends State<MessageView> {
                   _close();
                 case 'html':
                   setState(() => _showHtml = !_showHtml);
+                case 'tags':
+                  await _editTags(s, item);
               }
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'move', child: Text('Verschieben …')),
               const PopupMenuItem(value: 'unread', child: Text('Als ungelesen markieren')),
+              const PopupMenuItem(value: 'tags', child: Text('Tags …')),
               PopupMenuItem(value: 'html', child: Text(_showHtml ? 'Als Text anzeigen' : 'Als HTML anzeigen')),
             ],
           ),
@@ -366,6 +405,14 @@ class _MessageViewState extends State<MessageView> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
           Text(d.subject, style: theme.textTheme.titleLarge),
+          if (widget.item.keywords.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final t in tagsOf(widget.item, s.tagCatalogMap))
+                  InkWell(onTap: () => _editTags(s, widget.item), child: TagChip(t, dense: false)),
+              ]),
+            ),
           const SizedBox(height: 12),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SenderAvatar(name: item.sender),

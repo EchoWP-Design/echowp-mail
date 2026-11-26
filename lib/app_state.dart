@@ -23,6 +23,7 @@ import 'storage.dart';
 import 'contacts.dart';
 import 'pgp.dart';
 import 'security_check.dart';
+import 'tags.dart';
 import 'updater.dart';
 
 int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
@@ -523,6 +524,88 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       toast('Fehler: ${errText(e)}');
     }
+  }
+
+  // ---------------------------------------------------------------- Tags
+
+  /// Bekannte Tags (Name, Farbe) aus den Regeln – für Liste und Mailansicht.
+  Map<String, TagInfo> get tagCatalogMap => tagCatalog(settings.tagRules);
+
+  /// Tag-Regeln speichern (Drive-Abgleich inklusive) und Push-Dienst neu laden lassen.
+  Future<void> saveTagRules(List<TagRule> rules) async {
+    await updateSettings((x) => x.tagRules = rules);
+    await _restartPush();
+  }
+
+  /// Tag von Hand setzen bzw. entfernen.
+  Future<void> setTag(MailItem item, String keyword, String label, bool on) async {
+    final a = account(item.accountId);
+    if (a == null) return;
+    final had = item.keywords.contains(keyword);
+    if (on == had) return;
+    if (on) {
+      item.keywords.add(keyword);
+    } else {
+      item.keywords.remove(keyword);
+    }
+    notifyListeners();
+    try {
+      final conn = mail.conn(item.accountId);
+      if (on) {
+        final stored = await conn.addTag(item.folderPath, [item.uid], keyword,
+            gmailLabel: a.isGmail ? gmailLabelFor(label) : null);
+        if (!stored) {
+          item.keywords.remove(keyword);
+          notifyListeners();
+          toast(a.isGmail
+              ? 'Gmail-Label „$label“ gesetzt – eigene Schlagwörter speichert dieser Server nicht.'
+              : 'Dieser Server speichert keine eigenen Schlagwörter.');
+        }
+      } else {
+        await conn.removeTag(item.folderPath, [item.uid], keyword);
+        if (a.isGmail) toast('Das Gmail-Label „$label“ bitte in Gmail selbst entfernen.');
+      }
+    } catch (e) {
+      if (had) {
+        item.keywords.add(keyword);
+      } else {
+        item.keywords.remove(keyword);
+      }
+      notifyListeners();
+      toast('Fehler: ${errText(e)}');
+    }
+  }
+
+  bool tagRulesRunning = false;
+
+  /// Regeln auf vorhandene Mails anwenden: je Konto Posteingang und alle Push-/Automatik-Ordner,
+  /// jeweils die neuesten [perFolder] Mails. Liefert die Zahl gesetzter Tags.
+  Future<int> applyTagRulesNow({int perFolder = 200}) async {
+    if (tagRulesRunning) return 0;
+    tagRulesRunning = true;
+    notifyListeners();
+    var n = 0;
+    final errors = <String>[];
+    try {
+      for (final a in accounts) {
+        if (!settings.tagRules.any((r) => r.appliesTo(a.id))) continue;
+        final conn = mail.conn(a.id);
+        for (final path in {'INBOX', ...MailCheck.polledFolders(a)}) {
+          try {
+            final page = await conn.fetchList(path, count: perFolder);
+            n += await MailCheck.applyTags(conn, a, path, page.items, settings.tagRules);
+          } catch (e) {
+            errors.add('${a.displayName}/$path: ${errText(e)}');
+          }
+        }
+      }
+    } finally {
+      tagRulesRunning = false;
+      notifyListeners();
+    }
+    if (errors.isNotEmpty) toast('Nicht alle Ordner geschafft – ${errors.first}');
+    if (n > 0 && searchQuery == null && !loading) refresh();
+    return n;
   }
 
   /// Entfernt Mails sofort aus der Liste, führt die Aktion nach kurzer Verzögerung aus
