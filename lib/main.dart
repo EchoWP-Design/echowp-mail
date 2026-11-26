@@ -12,6 +12,7 @@ import 'keyboard.dart';
 import 'notifications.dart';
 import 'screens/home_screen.dart';
 import 'theme.dart';
+import 'widgets/update_ticker.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +49,8 @@ class EchoMailApp extends StatelessWidget {
       themeMode: mode,
       theme: echoTheme(Brightness.light),
       darkTheme: echoTheme(Brightness.dark),
+      // Laufband bei verfügbarem Update – oben auf allen Bildschirmen
+      builder: (context, child) => UpdateTickerFrame(child: child ?? const SizedBox.shrink()),
       home: const HomeScreen(),
     );
   }

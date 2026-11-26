@@ -29,6 +29,7 @@ import 'package:echowp_mail/widgets/common.dart';
 import 'package:echowp_mail/widgets/folder_pane.dart';
 import 'package:echowp_mail/widgets/folder_sync_sheet.dart';
 import 'package:echowp_mail/widgets/mail_tile.dart';
+import 'package:echowp_mail/widgets/update_ticker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2715,7 +2716,7 @@ void main() {
       await _drain(tester);
     });
 
-    testWidgets('Banner auf der Startseite, „Später“ blendet ihn aus', (tester) async {
+    testWidgets('Laufband oben bei Update, ✕ blendet es aus', (tester) async {
       tester.view.physicalSize = const Size(420, 900);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -2725,14 +2726,57 @@ void main() {
         ..folders['a1'] = _folders
         ..items = [_mail(1)]
         ..update = Updater.parse(rel('v9.0.0-build-99'));
-      await tester.pumpWidget(_wrap(s, const HomeScreen()));
+      await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: s,
+        child: MaterialApp(
+          scaffoldMessengerKey: s.messengerKey,
+          builder: (context, child) => UpdateTickerFrame(child: child!),
+          home: const HomeScreen(),
+        ),
+      ));
       await tester.pump();
-      expect(find.byKey(const ValueKey('update-banner')), findsOneWidget);
-      expect(find.text('Update verfügbar: v9.0 (Build 99)'), findsOneWidget);
-      await tester.tap(find.text('Später'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byKey(const ValueKey('update-ticker')), findsOneWidget);
+      expect(find.textContaining('Update verfügbar: v9.0 (Build 99)'), findsOneWidget);
+      // Laufband liegt über der App-Leiste
+      expect(tester.getTopLeft(find.byKey(const ValueKey('update-ticker'))).dy, 0);
+      expect(tester.getTopLeft(find.byType(AppBar).first).dy, greaterThanOrEqualTo(30));
+      // Text läuft
+      final x1 = tester.getTopLeft(find.textContaining('Update verfügbar')).dx;
+      await tester.pump(const Duration(seconds: 1));
+      final x2 = tester.getTopLeft(find.textContaining('Update verfügbar')).dx;
+      expect(x2, lessThan(x1));
+      await tester.tap(find.byKey(const ValueKey('update-ticker-close')));
       await tester.pump();
-      expect(find.byKey(const ValueKey('update-banner')), findsNothing);
+      expect(find.byKey(const ValueKey('update-ticker')), findsNothing);
       expect(s.updateDismissed, 'v9.0.0-build-99');
+      await _drain(tester);
+    });
+
+    testWidgets('Laufband steht still bei „Animationen reduzieren“ und zeigt den Download', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final s = AppState()..update = Updater.parse(rel('v9.0.0-build-99'));
+      await tester.pumpWidget(ChangeNotifierProvider<AppState>.value(
+        value: s,
+        child: MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: UpdateTickerFrame(child: child!),
+          ),
+          home: const Scaffold(body: Text('Inhalt')),
+        ),
+      ));
+      await tester.pump();
+      final x1 = tester.getTopLeft(find.textContaining('Update verfügbar')).dx;
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.getTopLeft(find.textContaining('Update verfügbar')).dx, x1);
+      s.updateProgress = 0.42;
+      s.refreshUi();
+      await tester.pump();
+      expect(find.textContaining('42 %'), findsOneWidget);
+      expect(find.byKey(const ValueKey('update-ticker-close')), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      s.updateProgress = null;
       await _drain(tester);
     });
   });
