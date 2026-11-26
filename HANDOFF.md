@@ -1,31 +1,27 @@
-# Übergabe – 2026-11-24, 23:45
+# Übergabe – 2026-11-26, 19:15
 
 ## Ziel der Sitzung
-„x neu“ in der Kontenübersicht passte nicht zum Ordnerinhalt (Zähler zeigte neue Mails, Ordner leer). Ursache beheben, testen, als v6.2.4 veröffentlichen.
+Server-seitiges Taggen (Sieve geprüft → bei Jans Anbietern nicht verfügbar) stattdessen per IMAP-Schlagwort/Gmail-Label; Update-Hinweis als Laufband wie EchoWP-Sim. Veröffentlicht als v6.3.0.
 
 ## Erledigt
-- Neu-Zähler wird mit dem Server abgeglichen (`reconcileNew`/`pruneNew`, `unseenAmong`, `imapUidSet`) – `lib/app_state.dart`, `lib/mail_service.dart` – Details in der Projektakte (Abschnitt v6.2.4)
-- 4 neue Tests (Neu-Zähler) – `test/widget_test.dart`
-- Version 6.2.4+28 überall gleichgezogen, README-Verlauf – 2a5c0ff
-- Workflow `.github/workflows/test.yml` (analyze + test auf Zweigen außer main, ohne Release)
-- Release v6.2.4-build-57 veröffentlicht (APKs, Setup.exe, ZIP, SHA256SUMS)
-- Projektakte `claude/echowp-mail-ueberblick.md` aktualisiert
+- Laufband `lib/widgets/update_ticker.dart` (ersetzt MaterialBanner) – 3277a38
+- Tags + Regeln `lib/tags.dart`, `screens/tag_rules_screen.dart`, Anwendung in `MailCheck.checkFolder` – a37de4c
+- Release v6.3.0-build-58 (APKs, Setup.exe, ZIP, SHA256SUMS); 121 Tests grün
+- Projektakte `claude/echowp-mail-ueberblick.md` aktualisiert (Details, Sieve-Befund)
 
 ## Offen / nächster Schritt
-1. Jan: v6.2.4 auf dem Handy testen – Mail im Webmail lesen, App öffnen → „x neu“ verschwindet nach wenigen Sekunden
-2. Jan: Zweig `fix/neu-zaehler` auf GitHub löschen (aus der Sitzung nicht möglich)
-3. Projektakte, Abschnitt „Offen / Ideen“: Zeile „Adressbuch: Import/Export (vCard/CSV), Gedächtnis“ zurück auf „…, Gruppen“ korrigieren (versehentlich geändert)
-4. Weiter offen aus 6.2.3: Ordner „Unerwünscht“ (WEB.DE) testen, Updater über „Jetzt updaten“ bestätigen; optional Banner mit transparentem Hintergrund
+1. Jan: v6.3.0 auf dem Handy testen – Laufband erscheint bei Updates; Regel anlegen, neue Mail bekommt Tag; welche Anbieter speichern Schlagwörter (Toast „speichert keine eigenen Schlagwörter“)? Gmail-Label sichtbar?
+2. Jan: `Test-NetConnection imap.strato.de -Port 4190`
+3. Jan: Zweige `fix/neu-zaehler` und `feature/laufband-tags` auf GitHub löschen
 
 ## Entscheidungen
-- Abgleich über den Server (UID SEARCH UNSEEN) statt lokal aus der Liste – sicher gegenüber gleichzeitig eintreffenden Push-Mails
-- Arbeit erst auf Zweig + `test.yml`, Merge auf main nur nach Jans Freigabe
+- Kein ManageSieve-Client, solange kein Anbieter es bietet; Tags laufen über Regeln in der App (Push/Abruf)
+- Gmail-Label per `UID COPY` in Label-Ordner (enough_mail 2.x hat keine Roh-Befehle für X-GM-LABELS)
 
 ## Bekannte Probleme
-- Flutter lokal nicht installierbar (storage.googleapis.com, pub.dev gesperrt) → Tests nur über GitHub Actions
-- Branch löschen per git-Proxy bricht ab, per API gesperrt
-- Im Abgleich-Test Hintergrund-Speichern mit `pumpEventQueue()` abwarten (sonst rot)
+- Flutter lokal nicht installierbar → Tests nur über GitHub Actions (`test.yml` auf Arbeitszweigen)
+- Gmail-Label wird beim Entfernen eines Tags nicht mit entfernt
 
 ## Zustand
-- Branch `main`, letzter Commit bc69fe6 (+ dieser Übergabe-Commit), keine offenen Änderungen
-- Letzter Build: Release v6.2.4-build-57 grün; 112 Tests bestanden
+- Branch `main`, letzter Code-Commit a37de4c (+ dieser Übergabe-Commit), keine offenen Änderungen
+- Letzter Build: Release v6.3.0-build-58 grün
