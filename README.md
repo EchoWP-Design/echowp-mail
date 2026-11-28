@@ -4,7 +4,7 @@
 
 Eigener E-Mail-Client für **Android** und **Windows 11**, bedient wie Aqua Mail, mit KI-Funktionen über die Claude API und dem EchoWP-Design in Schwarz-Gelb.
 
-**Aktuelle Version: 6.3.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
+**Aktuelle Version: 6.4.0** – Download unter [Releases](https://github.com/EchoWP-Design/echowp-mail/releases/latest)
 
 ## Download
 
@@ -25,7 +25,7 @@ Updates werden einfach über die vorhandene App installiert (gleiche Signatur, s
 - Mehrere Konten (Gmail, GMX, WEB.DE, T-Online, beliebiges IMAP/SMTP), jedes mit eigener Farbe
 - **„Aktuell“**: ungelesene und mit Stern markierte Mails aller Ordner mit Push oder Automatik – über alle Konten, jede Mail in der Farbe ihres Postfachs hinterlegt; Startansicht beim Öffnen der App
 - Je Ordner einstellbar (langes Drücken/Rechtsklick): **Push** (sofort per IMAP IDLE), **Automatisch** (regelmäßig) oder **Manuell**, dazu Benachrichtigung an/aus
-- Android: Abruf auch bei geschlossener App (Push-Dienst bzw. Hintergrundabruf); Benachrichtigung mit Knöpfen Löschen / Gelesen / Antworten
+- Android: Abruf auch bei geschlossener App (Push-Dienst bzw. Hintergrundabruf); Benachrichtigung mit Knöpfen Löschen / Gelesen / Antworten (wird vorgemerkt und notfalls nachgeholt, wenn Android die App im Hintergrund einfriert)
 - Ungelesen- und Neu-Zähler je Konto und Ordner
 - Abruf von Hand: Ladeanzeige höchstens 5 Sekunden, späte Antworten des Servers werden nachgetragen
 
@@ -76,6 +76,8 @@ Zusammenfassung, drei Antwortvorschläge, Ordnervorschlag, Sortierung ganzer Ord
 
 Ergebnis: Risiko 0–100 (unauffällig / verdächtig / gefährlich), der höhere Wert beider Stufen zählt – die KI kann die Regelbefunde nicht „wegdiskutieren“. Nach eigener Prüfung verschiebt **„In Spam verschieben“** die Mail in den Spam-Ordner des Kontos (wird bei Bedarf angelegt, mit Rückgängig). Ohne API-Key läuft nur die Regelprüfung.
 
+**Newsletter abbestellen** (Alt+5): Nutzt zuerst die Abmeldung, die der Versender in der Kopfzeile `List-Unsubscribe` anbietet – One-Click nach RFC 8058 (direkt, ohne Webseite, wie bei Gmail), sonst Abmelde-Mail vom eigenen Konto oder Abmeldeseite im Browser. Fehlt die Kopfzeile, sucht die App den Abmelde-Link im Text (Wortliste, dann KI); solche Links öffnen sich nur im Browser. Immer mit Rückfrage, bei verdächtigen Mails/Spam mit Warnung; Mail auf Wunsch danach löschen.
+
 ### Abgleich zwischen Geräten
 Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt in Google Drive (Ordner „EchoWP-Mail“, Scope `drive.file`) und werden zwischen Handy und PC abgeglichen. Alternativ verschlüsselte Sicherungsdatei exportieren/importieren.
 
@@ -90,7 +92,8 @@ Konten, Einstellungen, Adressbuch und Gedächtnis liegen AES-256-verschlüsselt 
 
 | Version | Neu |
 |---|---|
-| **6.3.0** | Tags: Regeln (Absender/Betreff enthält …) versehen neue Mails beim Eintreffen automatisch mit Tags – als IMAP-Schlagwort auf dem Server (auf allen Geräten sichtbar), bei Gmail zusätzlich als Label; Tags in Liste und Mailansicht, von Hand setzbar; Einstellungen → Tags & Regeln. Update-Hinweis als Laufband oben (Schwarz auf Gelb) |
+| **6.4.0** | KI-Werkzeug „Newsletter abbestellen“ (One-Click/Abmelde-Mail/Link, sonst Link-Suche per KI). Fix: „Löschen“/„Als gelesen“ in der Benachrichtigung wirkte bei eingefrorener App nicht – Aktion wird jetzt vorgemerkt und per WorkManager nachgeholt, offene Liste passt sich sofort an. Fix: Symbol in der Statusleiste war ein schwarzes Viereck – jetzt eigene weiße Silhouette (auch für den Push-Dienst) |
+| 6.3.0 | Tags: Regeln (Absender/Betreff enthält …) versehen neue Mails beim Eintreffen automatisch mit Tags – als IMAP-Schlagwort auf dem Server (auf allen Geräten sichtbar), bei Gmail zusätzlich als Label; Tags in Liste und Mailansicht, von Hand setzbar; Einstellungen → Tags & Regeln. Update-Hinweis als Laufband oben (Schwarz auf Gelb) |
 | **6.2.4** | „x neu“ in der Kontenübersicht stimmt wieder: Mails, die anderswo gelesen, vom Anbieter verschoben oder gelöscht wurden, werden beim Abgleich mit dem Server herausgenommen |
 | **6.2.3** | Ordner mit Umlauten (WEB.DE „Unerwünscht“, „Entwürfe“ …) lassen sich öffnen – Fehler „unsupported folder name“ behoben (auch beim Push) |
 | **6.2.2** | Spam-Ordner wird auch unter anderem Namen erkannt (WEB.DE „Unerwünscht“, GMX „Spamverdacht“ u. a.); ohne Treffer Auswahl statt stillem Anlegen; Ordner-Menü „Als Spam-Ordner festlegen“ |

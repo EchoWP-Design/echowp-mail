@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Benachrichtigungssymbole werden nur per Name aus Dart angesprochen: beim Release-Build
+     nicht als „unbenutzt“ entfernen -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_echowp,@drawable/ic_bg_service_small" />

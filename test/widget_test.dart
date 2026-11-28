@@ -21,6 +21,7 @@ import 'package:echowp_mail/screens/home_screen.dart';
 import 'package:echowp_mail/screens/message_screen.dart';
 import 'package:echowp_mail/security_check.dart';
 import 'package:echowp_mail/screens/settings_screen.dart';
+import 'package:echowp_mail/unsubscribe.dart';
 import 'package:echowp_mail/updater.dart';
 import 'package:echowp_mail/spell.dart';
 import 'package:echowp_mail/theme.dart';
@@ -2920,6 +2921,192 @@ void main() {
       await _drain(tester);
     });
   });
+
+  group('Benachrichtigungs-Aktionen (vorgemerkt)', () {
+    test('Aktion wird vorgemerkt, bei Fehler behalten, bei Erfolg entfernt', () async {
+      SharedPreferences.setMockInitialValues({});
+      const p = NotifyPayload('a1', 'INBOX', [5]);
+      await PendingActions.add(NotifyAction.delete, p);
+      await PendingActions.add(NotifyAction.delete, p); // doppelt gedrückt → einmal
+      expect(await PendingActions.count(), 1);
+      final calls = <String>[];
+      expect(await PendingActions.process(run: (a, q) async {
+        calls.add('$a:${q.path}:${q.uids.join(',')}');
+        return false; // Server nicht erreichbar
+      }), isFalse);
+      expect(calls, ['delete:INBOX:5']);
+      expect(await PendingActions.count(), 1);
+      expect(await PendingActions.process(run: (a, q) async => true), isTrue);
+      expect(await PendingActions.count(), 0);
+    });
+
+    test('nach 24 Stunden wird eine Aktion aufgegeben', () async {
+      final old = DateTime.now().subtract(const Duration(hours: 25)).millisecondsSinceEpoch;
+      SharedPreferences.setMockInitialValues({
+        PendingActions.key: [jsonEncode({'x': 'read', 'a': 'a1', 'p': 'INBOX', 'u': [3], 't': old})],
+      });
+      expect(await PendingActions.process(run: (a, q) async => false), isTrue);
+      expect(await PendingActions.count(), 0);
+    });
+
+    test('App passt die Liste an, wenn ein anderes Isolat gelöscht/gelesen hat', () async {
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final s = AppState()..items = [_mail(1), _mail(2), _mail(3)];
+      s.notifyActionDone(NotifyAction.delete, const NotifyPayload('a1', 'INBOX', [2]));
+      expect(s.items.map((i) => i.uid), [1, 3]);
+      s.notifyActionDone(NotifyAction.read, const NotifyPayload('a1', 'INBOX', [3]));
+      expect(s.items.last.seen, isTrue);
+      expect(s.items.first.seen, isFalse);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+
+    test('Statusleisten-Symbol ist eine eigene Silhouette, nicht das farbige App-Symbol', () {
+      expect(Notifier.statusIcon, 'ic_stat_echowp');
+      for (final d in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+        expect(File('tool/android_res/drawable-$d/ic_stat_echowp.png').existsSync(), isTrue, reason: d);
+        expect(File('tool/android_res/drawable-$d/ic_bg_service_small.png').existsSync(), isTrue, reason: d);
+      }
+      expect(File('tool/android_res/raw/keep.xml').readAsStringSync(), contains('@drawable/ic_stat_echowp'));
+    });
+  });
+
+  group('Newsletter abbestellen', () {
+    test('Kopfzeilen: One-Click vor Mail vor Link', () {
+      final one = Unsubscribe.fromHeaders(
+          '<mailto:abmelden@news.example.de?subject=Abmelden>, <https://news.example.de/u?id=1>',
+          'List-Unsubscribe=One-Click')!;
+      expect(one.method, UnsubMethod.oneClick);
+      expect(one.uri.toString(), 'https://news.example.de/u?id=1');
+      final mail = Unsubscribe.fromHeaders('<mailto:abmelden@news.example.de?subject=Abmelden>, <https://news.example.de/u>', null)!;
+      expect(mail.method, UnsubMethod.mail);
+      expect(mail.mailParts, ('abmelden@news.example.de', 'Abmelden', 'unsubscribe'));
+      final web = Unsubscribe.fromHeaders('<https://news.example.de/\r\n u>', null)!;
+      expect(web.method, UnsubMethod.web);
+      expect(web.uri.toString(), 'https://news.example.de/u');
+      // One-Click nur über HTTPS
+      expect(Unsubscribe.fromHeaders('<http://news.example.de/u>', 'List-Unsubscribe=One-Click')!.method, UnsubMethod.web);
+      expect(Unsubscribe.fromHeaders(null, null), isNull);
+      expect(Unsubscribe.fromHeaders('<javascript:alert(1)>', null), isNull);
+    });
+
+    test('Link im Text: Linktext, dann Adresse; keine mailto/javascript-Links', () {
+      final o = Unsubscribe.fromLinks(const [
+        LinkInfo('https://shop.example.de/angebot', 'Jetzt kaufen'),
+        LinkInfo('https://shop.example.de/x?t=9', 'Newsletter abbestellen'),
+      ])!;
+      expect(o.uri.toString(), 'https://shop.example.de/x?t=9');
+      expect(o.source, UnsubSource.body);
+      expect(Unsubscribe.fromLinks(const [LinkInfo('https://shop.example.de/unsubscribe/9', 'hier')])!.uri.path,
+          '/unsubscribe/9');
+      expect(Unsubscribe.fromLinks(const [LinkInfo('javascript:abmelden()', 'Abmelden')]), isNull);
+      expect(Unsubscribe.fromLinks(const [LinkInfo('https://shop.example.de/', 'Zum Shop')]), isNull);
+    });
+
+    test('One-Click sendet POST nach RFC 8058', () async {
+      late http.Request req;
+      final ok = await Unsubscribe.oneClick(Uri.parse('https://news.example.de/u?id=1'), MockClient((r) async {
+        req = r;
+        return http.Response('', 202);
+      }));
+      expect(ok, isTrue);
+      expect(req.method, 'POST');
+      expect(req.body, 'List-Unsubscribe=One-Click');
+      expect(req.headers['content-type'], startsWith('application/x-www-form-urlencoded'));
+      expect(await Unsubscribe.oneClick(Uri.parse('https://news.example.de/u'), MockClient((r) async => http.Response('', 500))),
+          isFalse);
+    });
+
+    const newsRaw = 'From: Shop <news@shop.example.de>\r\n'
+        'To: test@example.de\r\n'
+        'Subject: Angebote der Woche\r\n'
+        'List-Unsubscribe: <https://shop.example.de/u?id=42>\r\n'
+        'List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n'
+        'Content-Type: text/plain; charset=utf-8\r\n'
+        '\r\n'
+        'Unsere Angebote.\r\n';
+
+    testWidgets('Knopf in der KI-Karte: One-Click mit Rückfrage', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final item = _mail(9);
+      final requests = <http.Request>[];
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [item]
+        ..httpClient = (() => MockClient((r) async {
+              requests.add(r);
+              return http.Response('', 200);
+            }));
+      s.mail.put('a1', _DetailConn(_acc(), newsRaw));
+      await tester.pumpWidget(_wrap(s, Scaffold(body: MessageView(item: item, embedded: true))));
+      await tester.pump();
+      await tester.pump();
+      final btn = find.text('Newsletter abbestellen');
+      await tester.ensureVisible(btn);
+      await tester.tap(btn);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const ValueKey('unsubscribe-dialog')), findsOneWidget);
+      expect(find.textContaining('shop.example.de'), findsWidgets);
+      // Mail behalten (sonst ginge Löschen an den Server)
+      await tester.tap(find.text('Diese Mail danach löschen'));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('unsubscribe-confirm')));
+      await tester.pump();
+      await tester.pump();
+      expect(requests.single.body, 'List-Unsubscribe=One-Click');
+      expect(requests.single.url.toString(), 'https://shop.example.de/u?id=42');
+      expect(find.textContaining('Abgemeldet bei shop.example.de'), findsOneWidget);
+      expect(s.items, [item]);
+      await _drain(tester);
+    });
+
+    testWidgets('ohne Kopfzeile sucht die KI den Link; Abbrechen ruft nichts auf', (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
+      final item = _mail(10);
+      final fake = _FakeAi()..unsubscribeIndex = 1;
+      final s = AppState()
+        ..accounts = [_acc()]
+        ..folders['a1'] = _folders
+        ..items = [item]
+        ..ai = fake;
+      s.settings.aiKey = 'test-key';
+      const raw = 'From: Shop <news@shop.example.de>\r\n'
+          'To: test@example.de\r\n'
+          'Subject: Neuigkeiten\r\n'
+          'Content-Type: text/html; charset=utf-8\r\n'
+          '\r\n'
+          '<p><a href="https://shop.example.de/neu">Neu im Shop</a></p>'
+          '<p><a href="https://shop.example.de/p/77">Einstellungen</a></p>\r\n';
+      s.mail.put('a1', _DetailConn(_acc(), raw));
+      await tester.pumpWidget(_wrap(s, Scaffold(body: MessageView(item: item, embedded: true))));
+      await tester.pump();
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit5);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pump();
+      await tester.pump();
+      expect(fake.prompt, contains('2: Einstellungen → https://shop.example.de/p/77'));
+      expect(fake.prompt, contains('<mail_inhalt>'));
+      expect(find.byKey(const ValueKey('unsubscribe-ai-note')), findsOneWidget);
+      expect(find.textContaining('https://shop.example.de/p/77'), findsOneWidget);
+      await tester.tap(find.text('Abbrechen'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('unsubscribe-dialog')), findsNothing);
+      expect(s.items, [item]);
+      await _drain(tester);
+    });
+  });
 }
 
 /// Nachgebildeter, langsamer Server.
@@ -2983,6 +3170,13 @@ class _SpamConn extends _DetailConn {
 /// KI-Attrappe: hält jede Mail für harmlos (wie nach erfolgreicher Prompt-Injektion).
 class _FakeAi extends AiService {
   String prompt = '';
+  int? unsubscribeIndex;
+
+  @override
+  Future<int?> findUnsubscribeLink(String key, String model, String prompt, int count) async {
+    this.prompt = prompt;
+    return unsubscribeIndex;
+  }
 
   @override
   Future<(int, List<String>, String)> securityCheck(String key, String model, String prompt) async {

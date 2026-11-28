@@ -13,6 +13,7 @@ import '../models.dart';
 import '../pgp.dart';
 import '../security_check.dart';
 import '../tags.dart';
+import '../unsubscribe.dart';
 import '../widgets/common.dart';
 import '../widgets/mail_tile.dart';
 import '../widgets/spam_folder_dialog.dart';
@@ -154,6 +155,7 @@ class _MessageViewState extends State<MessageView> {
       if (k == LogicalKeyboardKey.digit2 || k == LogicalKeyboardKey.numpad2) return _aiKey('replies');
       if (k == LogicalKeyboardKey.digit3 || k == LogicalKeyboardKey.numpad3) return _aiKey('folder');
       if (k == LogicalKeyboardKey.digit4 || k == LogicalKeyboardKey.numpad4) return _aiKey('security');
+      if (k == LogicalKeyboardKey.digit5 || k == LogicalKeyboardKey.numpad5) return _aiKey('unsubscribe');
       if (k == LogicalKeyboardKey.keyB) {
         setState(() => _loadImages = true);
         return true;
@@ -197,6 +199,7 @@ class _MessageViewState extends State<MessageView> {
     final s = context.read<AppState>();
     final d = _detail;
     if (d == null) return;
+    if (kind == 'unsubscribe') return _unsubscribe(s, d);
     if (d.pgp.confidential) {
       s.toast('Verschlüsselte Mails werden nicht an die KI gegeben.');
       return;
@@ -220,6 +223,92 @@ class _MessageViewState extends State<MessageView> {
       }
     } catch (e) {
       s.toast(AppState.errText(e));
+    } finally {
+      if (mounted) setState(() => _aiBusy = null);
+    }
+  }
+
+  /// Newsletter abbestellen: Kopfzeile (One-Click/Mail/Link), sonst Link im Text (Wortliste, dann KI).
+  /// Immer mit Rückfrage – bei verdächtigen Mails bzw. Spam mit Warnung.
+  Future<void> _unsubscribe(AppState s, MailDetail d) async {
+    setState(() => _aiBusy = 'unsubscribe');
+    UnsubOption? o;
+    try {
+      o = await s.findUnsubscribe(d);
+    } catch (e) {
+      s.toast('Suche nach dem Abmelde-Link fehlgeschlagen: ${AppState.errText(e)}');
+      return;
+    } finally {
+      if (mounted) setState(() => _aiBusy = null);
+    }
+    if (!mounted) return;
+    if (o == null) {
+      s.toast(s.settings.aiKey.trim().isEmpty
+          ? 'Keine Abmeldemöglichkeit gefunden. (Ohne Claude-API-Key sucht die KI nicht im Mailtext.)'
+          : 'Keine Abmeldemöglichkeit gefunden – das ist vermutlich kein Newsletter.');
+      return;
+    }
+    final option = o;
+    final risky = s.unsubscribeRisky(d);
+    var deleteAfter = true;
+    final how = switch (option.method) {
+      UnsubMethod.oneClick => 'Direkte Abmeldung beim Versender (${option.host}) – ohne Webseite, wie bei Gmail.',
+      UnsubMethod.mail => 'Es wird eine Abmelde-Mail an ${option.mailParts.$1} von deinem Konto gesendet.',
+      UnsubMethod.web => 'Die Abmeldeseite wird im Browser geöffnet: ${option.host}. Dort ggf. noch bestätigen.',
+    };
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          key: const ValueKey('unsubscribe-dialog'),
+          scrollable: true,
+          title: const Text('Newsletter abbestellen?'),
+          content: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text('Absender: ${d.item.fromEmail}'),
+            const SizedBox(height: 8),
+            Text(how),
+            if (option.source == UnsubSource.ai) ...[
+              const SizedBox(height: 8),
+              Text('Den Link hat die KI im Mailtext gefunden – Ziel bitte prüfen:\n${option.uri}',
+                  key: const ValueKey('unsubscribe-ai-note')),
+            ],
+            if (risky) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Achtung: Die Mail wirkt verdächtig oder liegt im Spam. Bei Spam bestätigt eine Abmeldung '
+                'oft nur, dass deine Adresse aktiv ist – dann besser nur in den Spam-Ordner verschieben.',
+                key: const ValueKey('unsubscribe-warning'),
+                style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+              ),
+            ],
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: deleteAfter,
+              onChanged: (v) => setD(() => deleteAfter = v ?? false),
+              title: const Text('Diese Mail danach löschen'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Abbrechen')),
+            FilledButton(
+              key: const ValueKey('unsubscribe-confirm'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(risky ? 'Trotzdem abmelden' : 'Abmelden'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (go != true || !mounted) return;
+    setState(() => _aiBusy = 'unsubscribe');
+    try {
+      s.toast(await s.unsubscribe(d, option));
+      if (deleteAfter) {
+        s.removeWithUndo([widget.item], SwipeAction.delete);
+        _close();
+      }
+    } catch (e) {
+      s.toast('Abmelden fehlgeschlagen: ${AppState.errText(e)}');
     } finally {
       if (mounted) setState(() => _aiBusy = null);
     }
@@ -633,6 +722,7 @@ class _MessageViewState extends State<MessageView> {
             btn('replies', Icons.quickreply, 'Antwortvorschläge'),
             btn('folder', Icons.drive_file_move, 'Ordner vorschlagen'),
             btn('security', Icons.gpp_maybe_outlined, 'Sicherheit prüfen'),
+            btn('unsubscribe', Icons.unsubscribe_outlined, 'Newsletter abbestellen'),
           ]),
           if (_security != null) ...[
             const SizedBox(height: 12),

@@ -378,6 +378,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
         s.showUnifiedInbox();
       }
+      s.processPendingActions();
       s.poll();
     }
   }

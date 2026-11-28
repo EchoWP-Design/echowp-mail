@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart' show NotificationResponse;
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import 'ai_service.dart';
@@ -24,6 +25,7 @@ import 'contacts.dart';
 import 'pgp.dart';
 import 'security_check.dart';
 import 'tags.dart';
+import 'unsubscribe.dart';
 import 'updater.dart';
 
 int _byDate(MailItem a, MailItem b) => b.date.compareTo(a.date);
@@ -35,6 +37,9 @@ class AppState extends ChangeNotifier {
   final _storage = Storage();
   final mail = MailService();
   AiService ai = AiService();
+
+  /// HTTP für One-Click-Abmeldungen (Tests: MockClient).
+  http.Client Function() httpClient = http.Client.new;
 
   List<EchoAccount> accounts = [];
   AppSettings settings = AppSettings();
@@ -916,13 +921,45 @@ class AppState extends ChangeNotifier {
   /// [openMail] wird von der Oberfläche gesetzt (Navigation zum Lesen/Antworten).
   Future<void> Function(MailItem item, {required bool reply})? openMail;
 
+  /// Eine Aktion aus der Benachrichtigung („Löschen“/„Als gelesen“) wurde in einem anderen
+  /// Isolat auf dem Server erledigt → Liste sofort anpassen, nicht erst beim nächsten Abruf.
+  void notifyActionDone(String action, NotifyPayload p) {
+    final hit = items.where((i) => i.accountId == p.accountId && i.folderPath == p.path && p.uids.contains(i.uid)).toList();
+    if (action == NotifyAction.delete) {
+      final keys = hit.map((i) => i.key).toSet();
+      for (final i in hit.where((i) => !i.seen)) {
+        _adjustUnread(i, -1);
+      }
+      items.removeWhere((i) => keys.contains(i.key));
+      if (openItem != null && keys.contains(openItem!.key)) openItem = null;
+      if (cursor != null && keys.contains(cursor!.key)) cursor = null;
+      selection.removeAll(keys);
+    } else if (action == NotifyAction.read) {
+      for (final i in hit.where((i) => !i.seen)) {
+        i.seen = true;
+        _adjustUnread(i, -1);
+      }
+    }
+    notifyListeners();
+    reloadNew();
+    _scheduleCounts(p.accountId, delay: Duration.zero);
+  }
+
+  /// Vorgemerkte Benachrichtigungs-Aktionen nachholen (App-Start, Rückkehr in die App).
+  Future<void> processPendingActions() async {
+    if (await PendingActions.count() == 0) return;
+    await PendingActions.process();
+    if (!loading) refresh();
+  }
+
   Future<void> handleNotification(NotificationResponse r) async {
     // Antippen einer Benachrichtigung öffnet gezielt eine Mail → nicht zur Startansicht springen
     holdView();
     Future.delayed(const Duration(seconds: 3), releaseView);
     final p = NotifyPayload.decode(r.payload);
-    if (r.actionId == NotifyAction.read || r.actionId == NotifyAction.delete) {
-      // bereits auf dem Server erledigt – Anzeige auffrischen
+    if (PendingActions.handles(r.actionId)) {
+      // bereits auf dem Server erledigt (bzw. vorgemerkt) – Anzeige auffrischen
+      if (p != null) notifyActionDone(r.actionId!, p);
       await reloadNew();
       if (p != null) _scheduleCounts(p.accountId, delay: Duration.zero);
       if (!loading) refresh();
@@ -1294,6 +1331,80 @@ class AppState extends ChangeNotifier {
       return SecurityReport(local, aiScore: score, aiReasons: reasons, aiSummary: summary);
     } catch (e) {
       return SecurityReport(local, aiError: 'KI-Prüfung nicht möglich (${errText(e)}) – nur automatische Regelprüfung.');
+    }
+  }
+
+  // ---------------------------------------------------------------- Newsletter abbestellen
+
+  /// Abmeldemöglichkeit einer Mail: Kopfzeilen, dann Wortliste im Text, dann KI ([useAi]).
+  /// null = keine gefunden. Wirft AiException nur, wenn die KI-Suche selbst scheitert.
+  Future<UnsubOption?> findUnsubscribe(MailDetail d, {bool useAi = true}) async {
+    final h = Unsubscribe.fromHeaders(
+        d.mime.getHeaderValue('list-unsubscribe'), d.mime.getHeaderValue('list-unsubscribe-post'));
+    if (h != null) return h;
+    final links = extractLinks(d.html, d.text);
+    final body = Unsubscribe.fromLinks(links);
+    if (body != null) return body;
+    if (!useAi || _key.trim().isEmpty || d.pgp.confidential) return null;
+    final cands = Unsubscribe.candidates(links);
+    if (cands.isEmpty) return null;
+    final i = await ai.findUnsubscribeLink(
+      _key,
+      _model,
+      Unsubscribe.prompt(fromEmail: d.item.fromEmail, subject: d.subject, text: d.text, links: cands),
+      cands.length,
+    );
+    if (i == null) return null;
+    return UnsubOption(UnsubMethod.web, Uri.parse(cands[i].href), UnsubSource.ai);
+  }
+
+  /// Wirkt die Mail verdächtig (Regelprüfung) oder liegt sie im Spam? Dann bestätigt eine
+  /// Abmeldung oft nur, dass die Adresse aktiv ist.
+  bool unsubscribeRisky(MailDetail d) {
+    if (folder(d.item.accountId, d.item.folderPath)?.role == 'junk') return true;
+    final local = SecurityCheck.local(
+      fromName: d.item.fromName,
+      fromEmail: d.item.fromEmail,
+      subject: d.subject,
+      text: d.text,
+      html: d.html,
+      headers: SecurityCheck.headersOf(d.mime),
+      replyTo: d.replyToAddrs.map((a) => a.email).toList(),
+      attachmentNames: d.attachments.map((a) => a.name).toList(),
+    );
+    return levelFor(local.score) != RiskLevel.safe;
+  }
+
+  /// Führt die Abmeldung aus. Liefert einen Hinweistext für Jan.
+  Future<String> unsubscribe(MailDetail d, UnsubOption o) async {
+    switch (o.method) {
+      case UnsubMethod.oneClick:
+        final c = httpClient();
+        try {
+          final ok = await Unsubscribe.oneClick(o.uri, c);
+          if (!ok) throw const FormatException('Der Versender hat die Abmeldung abgelehnt.');
+        } on TimeoutException {
+          throw const FormatException('Der Versender antwortet nicht.');
+        } finally {
+          c.close();
+        }
+        return 'Abgemeldet bei ${o.host}. Es kann ein paar Tage dauern, bis keine Mails mehr kommen.';
+      case UnsubMethod.mail:
+        final acc = account(d.item.accountId);
+        if (acc == null) throw StateError('Konto nicht gefunden');
+        final (to, subject, body) = o.mailParts;
+        final msg = MailService.buildMessage(
+          from: acc,
+          to: [em.MailAddress(null, to)],
+          subject: subject,
+          text: body,
+        );
+        await mail.send(acc, msg);
+        return 'Abmelde-Mail an $to gesendet.';
+      case UnsubMethod.web:
+        final ok = await whileAway(() => launchUrl(o.uri, mode: LaunchMode.externalApplication));
+        if (!ok) throw const FormatException('Abmeldeseite konnte nicht geöffnet werden.');
+        return 'Abmeldeseite geöffnet – dort ggf. noch bestätigen.';
     }
   }
 

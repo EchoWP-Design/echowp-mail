@@ -161,6 +161,7 @@ Future<void> pushServiceMain(ServiceInstance service) async {
     final conn = conns.putIfAbsent('${a.id}|$path', () => AccountConnection(a));
     conn.account = a;
     try {
+      PendingActions.process();
       final news = await MailCheck.checkFolder(conn, a, path, settings);
       if (news.isNotEmpty) {
         service.invoke('newMail', {'accountId': a.id, 'path': path, 'count': news.length});
@@ -169,6 +170,8 @@ Future<void> pushServiceMain(ServiceInstance service) async {
   });
 
   Future<void> reload() async {
+    // Offene Aktionen aus Benachrichtigungen (Löschen / Als gelesen) mit erledigen
+    PendingActions.process();
     settings = await storage.loadSettings();
     final accounts = await storage.loadAccounts();
     await engine.apply(accounts);

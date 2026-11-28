@@ -18,8 +18,20 @@ const _taskName = 'echowp-mailcheck';
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    if (task == PendingActions.workerName) {
+      // „Löschen“/„Als gelesen“ aus einer Benachrichtigung nachholen.
+      // false → WorkManager wiederholt später (Netz weg, Server nicht erreichbar).
+      try {
+        WidgetsFlutterBinding.ensureInitialized();
+        await Notifier.init(requestPermission: false);
+        return await PendingActions.process();
+      } catch (_) {
+        return false;
+      }
+    }
     try {
       WidgetsFlutterBinding.ensureInitialized();
+      await PendingActions.process();
       await MailCheck.runOnce(fromBackground: true);
     } catch (_) {}
     return true; // nie als Fehler melden, sonst plant Android Wiederholungen

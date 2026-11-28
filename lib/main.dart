@@ -28,6 +28,10 @@ Future<void> main() async {
   // Antippen einer Benachrichtigung / „Antworten“, während die App läuft
   Notifier.taps.listen(state.handleNotification);
   await state.load();
+  // „Löschen“/„Als gelesen“ aus Benachrichtigungen: erledigt ein anderes Isolat (App lief im
+  // Hintergrund), wird die Liste sofort angepasst; Liegengebliebenes wird jetzt nachgeholt.
+  PendingActions.listen(state.notifyActionDone);
+  state.processPendingActions();
   // App wurde über eine Benachrichtigung gestartet
   final launch = await Notifier.launchResponse();
   if (launch != null) await state.handleNotification(launch);

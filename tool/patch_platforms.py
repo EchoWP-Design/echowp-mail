@@ -58,6 +58,31 @@ def manifest(t: str) -> str:
 patch(root / "android/app/src/main/AndroidManifest.xml", manifest)
 
 
+# ---------- Android: Symbol für die Statusleiste ----------
+# Android zeigt das kleine Benachrichtigungssymbol nur als Maske (Alpha-Kanal). Das farbige
+# App-Symbol (@mipmap/ic_launcher) wird dadurch zum schwarzen/grauen Viereck. Deshalb eigene
+# weiße Silhouetten: ic_stat_echowp (Mail-Benachrichtigungen) und ic_bg_service_small
+# (überschreibt das Symbol des Push-Dienstes). keep.xml schützt sie vor dem Ressourcen-Shrinker.
+def copy_res():
+    import shutil
+    src = root / "tool/android_res"
+    dst = root / "android/app/src/main/res"
+    if not (root / "android").exists():
+        print("übersprungen (kein android/): Statusleisten-Symbol")
+        return
+    if not dst.exists():
+        raise SystemExit(f"Fehler: {dst} fehlt – Statusleisten-Symbol kann nicht kopiert werden")
+    for f in src.rglob("*"):
+        if f.is_file():
+            target = dst / f.relative_to(src)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(f, target)
+            print(f"kopiert: {target.relative_to(root)}")
+
+
+copy_res()
+
+
 STORE = "../../keystore/echowp-release.jks"
 PW = os.environ.get("ANDROID_KEYSTORE_PASSWORD", "")
 
